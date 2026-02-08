@@ -1,14 +1,14 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3000/api';
+const API_URL = 'http://localhost:5000/api';
 
 // Async thunk для получения бордов
 export const fetchBoards = createAsyncThunk(
   'boards/fetchBoards',
   async () => {
     const response = await axios.get(`${API_URL}/boards`);
-    return response.data;
+    return response.data.data;  // ← Возвращаем только массив из поля "data"
   }
 );
 
@@ -17,14 +17,14 @@ export const createBoard = createAsyncThunk(
   'boards/createBoard',
   async (boardData) => {
     const response = await axios.post(`${API_URL}/boards`, boardData);
-    return response.data;
+    return response.data.data;  // ← Возвращаем только данные из поля "data"
   }
 );
 
 const boardsSlice = createSlice({
   name: 'boards',
   initialState: {
-    boards: [],
+    boards: [],  // ← Теперь это будет чистый массив
     status: 'idle',
     error: null,
   },
@@ -36,7 +36,7 @@ const boardsSlice = createSlice({
       })
       .addCase(fetchBoards.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        state.boards = action.payload;
+        state.boards = action.payload;  // ← action.payload уже массив
       })
       .addCase(fetchBoards.rejected, (state, action) => {
         state.status = 'failed';

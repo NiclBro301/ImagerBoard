@@ -1,3 +1,107 @@
 .App {
   min-height: 100vh;
 }
+
+/* Стили для навигации */
+.navbar {
+  background: white;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.navbar-brand {
+  font-size: 24px;
+  font-weight: bold;
+  text-decoration: none;
+  color: #007bff;
+  transition: color 0.3s;
+}
+
+.navbar-brand:hover {
+  color: #0056b3;
+}
+
+.nav-links {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: #333;
+  font-weight: 500;
+  transition: color 0.3s;
+}
+
+.nav-link:hover {
+  color: #007bff;
+}
+
+/* Имя пользователя - курсор как на кнопку */
+.nav-username {
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;  /* ← Курсор-палец */
+  user-select: none; /* Запрет выделения текста */
+  transition: color 0.3s;
+}
+
+.nav-username:hover {
+  color: #007bff;
+}
+
+/* Кнопка регистрации - убрать подчеркивание */
+.btn.btn-primary {
+  text-decoration: none !important;  /* ← Убираем подчеркивание */
+  padding: 8px 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.3s;
+}
+
+.btn.btn-primary:hover {
+  background-color: #0056b3;
+  text-decoration: none !important;  /* ← Убираем подчеркивание при наведении */
+}
+
+/* Кнопка выхода */
+.btn.btn-outline {
+  padding: 8px 16px;
+  border: 1px solid #007bff;
+  border-radius: 4px;
+  background: transparent;
+  color: #007bff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.btn.btn-outline:hover {
+  background-color: #007bff;
+  color: white;
+  text-decoration: none;
+}
+
+.btn.btn-danger {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.3s;
+}
+
+.btn.btn-danger:hover {
+  background-color: #c82333;
+}

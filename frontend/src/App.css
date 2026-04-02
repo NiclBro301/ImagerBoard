@@ -105,3 +105,45 @@
 .btn.btn-danger:hover {
   background-color: #c82333;
 }
+
+/* 🔴 Кастомизация toast-уведомлений */
+.Toastify__toast {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.Toastify__toast--success {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  color: white;
+}
+
+.Toastify__toast--error {
+  background: linear-gradient(135deg, #dc3545 0%, #ff6b6b 100%);
+  color: white;
+}
+
+.Toastify__toast--warning {
+  background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%);
+  color: #333;
+}
+
+.Toastify__toast--info {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.Toastify__progress-bar {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.Toastify__close-button {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.Toastify__close-button:hover {
+  opacity: 1;
+}

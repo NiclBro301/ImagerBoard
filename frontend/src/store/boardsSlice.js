@@ -1,51 +1,54 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
+import { boardService } from '../services/boardService';
 
-const API_URL = 'http://localhost:5000/api';
-
-// Async thunk для получения бордов
+// 🔴 Асинхронный экшен для загрузки бордов
 export const fetchBoards = createAsyncThunk(
   'boards/fetchBoards',
-  async () => {
-    const response = await axios.get(`${API_URL}/boards`);
-    return response.data.data;  // ← Возвращаем только массив из поля "data"
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await boardService.getAll();
+      // 🔴 Правильно извлекаем массив бордов из ответа
+      return response.data?.boards || response.data || [];
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Ошибка при загрузке бордов');
+    }
   }
 );
 
-// Async thunk для создания борда
-export const createBoard = createAsyncThunk(
-  'boards/createBoard',
-  async (boardData) => {
-    const response = await axios.post(`${API_URL}/boards`, boardData);
-    return response.data.data;  // ← Возвращаем только данные из поля "data"
-  }
-);
+const initialState = {
+  boards: [],  // 🔴 Инициализируем пустым массивом
+  status: 'idle',  // 'idle' | 'loading' | 'succeeded' | 'failed'
+  error: null,
+};
 
 const boardsSlice = createSlice({
   name: 'boards',
-  initialState: {
-    boards: [],  // ← Теперь это будет чистый массив
-    status: 'idle',
-    error: null,
+  initialState,
+  reducers: {
+    // Синхронные экшены (если понадобятся)
+    clearBoards: (state) => {
+      state.boards = [];
+      state.error = null;
+    },
   },
-  reducers: {},
   extraReducers: (builder) => {
     builder
       .addCase(fetchBoards.pending, (state) => {
         state.status = 'loading';
+        state.error = null;
       })
       .addCase(fetchBoards.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        state.boards = action.payload;  // ← action.payload уже массив
+        // 🔴 Гарантируем, что boards — массив
+        state.boards = Array.isArray(action.payload) ? action.payload : [];
       })
       .addCase(fetchBoards.rejected, (state, action) => {
         state.status = 'failed';
-        state.error = action.error.message;
-      })
-      .addCase(createBoard.fulfilled, (state, action) => {
-        state.boards.push(action.payload);
+        state.error = action.payload || 'Ошибка при загрузке бордов';
+        state.boards = [];  // 🔴 Сбрасываем на пустой массив при ошибке
       });
   },
 });
 
+export const { clearBoards } = boardsSlice.actions;
 export default boardsSlice.reducer;

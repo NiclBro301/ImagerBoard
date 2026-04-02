@@ -207,3 +207,178 @@
     width: 100%;
   }
 }
+
+/* Вкладки профиля */
+.profile-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #6c757d;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tab-btn:hover {
+  color: #333;
+  background: #f8f9fa;
+}
+
+.tab-btn.active {
+  color: #667eea;
+  background: #f0f4ff;
+  font-weight: 600;
+}
+
+.tab-badge {
+  background: #dc3545;
+  color: white;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  margin-left: 0.25rem;
+}
+
+/* Уведомления */
+.notifications-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.notification-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #e9ecef;
+  transition: all 0.2s;
+}
+
+.notification-item.unread {
+  background: #f0f4ff;
+  border-left-color: #667eea;
+}
+
+.notification-item:hover {
+  background: #e9ecef;
+}
+
+.notification-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.badge-new {
+  background: #28a745;
+  color: white;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.notification-message {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.quote-preview {
+  margin: 0.5rem 0;
+}
+
+.quote-block {
+  background: white;
+  border-left: 3px solid #667eea;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.quote-author {
+  font-weight: 600;
+  color: #667eea;
+  font-size: 0.85rem;
+}
+
+.quote-text {
+  margin: 0.25rem 0 0 0;
+  color: #6c757d;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.notification-meta {
+  display: flex;
+  gap: 0.75rem;
+  color: #6c757d;
+  font-size: 0.8rem;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  color: #6c757d;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: #e9ecef;
+  color: #333;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .notification-item {
+    flex-direction: column;
+  }
+  
+  .notification-actions {
+    align-self: flex-end;
+  }
+}

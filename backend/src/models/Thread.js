@@ -7,36 +7,47 @@ const threadSchema = new mongoose.Schema(
       ref: 'Board',
       required: [true, 'Борд обязателен'],
     },
-    title: {
-      type: String,
-      required: [true, 'Заголовок обязателен'],
-      trim: true,
-      maxlength: [100, 'Заголовок не может быть длиннее 100 символов'],
-    },
-    content: {
-      type: String,
-      required: [true, 'Содержание обязательно'],
-      trim: true,
-    },
-    image: {
-      type: String,
+    // 🔴 ДОБАВЛЕНО: ссылка на автора треда (может быть null для анонимов)
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       default: null,
     },
     author: {
       type: String,
       default: 'Аноним',
     },
+    title: {
+      type: String,
+      required: [true, 'Заголовок обязателен'],
+      maxlength: [200, 'Заголовок не может быть длиннее 200 символов'],
+    },
+    content: {
+      type: String,
+      required: [true, 'Содержимое обязательно'],
+      maxlength: [5000, 'Содержимое не может быть длиннее 5000 символов'],
+    },
+    image: {
+      type: String,
+      default: null,
+    },
     isPinned: {
       type: Boolean,
       default: false,
+      index: true,  // Для быстрой сортировки закреплённых
     },
     postCount: {
       type: Number,
-      default: 1, // Первый пост - это сам тред
+      default: 0,
     },
-    lastActivity: {
+    lastPostAt: {
       type: Date,
-      default: Date.now,
+      default: null,
+    },
+    lastPostBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
     isDeleted: {
       type: Boolean,
@@ -48,39 +59,34 @@ const threadSchema = new mongoose.Schema(
   }
 );
 
-// Виртуальное поле для короткого превью
-threadSchema.virtual('preview').get(function () {
-  return this.content.substring(0, 150) + (this.content.length > 150 ? '...' : '');
-});
-
-// Метод для инкремента счетчика постов
+// 🔴 Методы для инкремента/декремента счётчиков
 threadSchema.methods.incrementPostCount = async function () {
   this.postCount += 1;
-  this.lastActivity = Date.now();
+  this.lastPostAt = Date.now();
   await this.save();
 };
 
-// Метод для декремента счетчика постов
 threadSchema.methods.decrementPostCount = async function () {
-  this.postCount = Math.max(1, this.postCount - 1);
-  await this.save();
+  if (this.postCount > 0) {
+    this.postCount -= 1;
+    await this.save();
+  }
 };
 
-// Метод для пиннинга треда
+// Методы для закрепления
 threadSchema.methods.pin = async function () {
   this.isPinned = true;
   await this.save();
 };
 
-// Метод для открепления треда
 threadSchema.methods.unpin = async function () {
   this.isPinned = false;
   await this.save();
 };
 
-// Создаем индексы для оптимизации запросов
-threadSchema.index({ board: 1, createdAt: -1 });
-threadSchema.index({ board: 1, isPinned: -1, lastActivity: -1 });
+// Индексы для оптимизации
+threadSchema.index({ board: 1, isPinned: -1, createdAt: -1 });
+threadSchema.index({ board: 1, lastPostAt: -1 });
 
 const Thread = mongoose.model('Thread', threadSchema);
 

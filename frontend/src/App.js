@@ -1,8 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { login, logout } from './store/authSlice';
+import { setCredentials, logout } from './store/authSlice';
 import { fetchBoards } from './store/boardsSlice';
+import api from './services/api';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 import HomePage from './pages/HomePage';
 import BoardPage from './pages/BoardPage';
@@ -11,6 +14,7 @@ import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
+import BanNotification from './components/BanNotification';
 
 import RoleRoute from './components/RoleRoute';
 import './App.css';
@@ -39,106 +43,189 @@ const PublicRoute = ({ children }) => {
 
 function App() {
   const dispatch = useDispatch();
-  const { isAuthenticated, user } = useSelector((state) => state.auth);
+  const { isAuthenticated, user, token } = useSelector((state) => state.auth);
+  const [isBanned, setIsBanned] = useState(false);
+  const [banInfo, setBanInfo] = useState(null);
+  const [sessionRestored, setSessionRestored] = useState(false);
 
   useEffect(() => {
     dispatch(fetchBoards());
   }, [dispatch]);
 
+  useEffect(() => {
+    const restoreSession = async () => {
+      if (isAuthenticated && user) {
+        setSessionRestored(true);
+        return;
+      }
+      
+      if (!token) {
+        setSessionRestored(true);
+        return;
+      }
+      
+      try {
+        const response = await api.get('/auth/me');
+        dispatch(setCredentials({
+          token,
+          user: response.data.user,
+        }));
+        
+        if (response.data.user?.isActive === false) {
+          setIsBanned(true);
+          setBanInfo({
+            bannedUntil: response.data.user.bannedUntil,
+            isPermanent: !response.data.user.bannedUntil,
+          });
+        }
+      } catch (error) {
+        console.error('❌ Session restore failed:', error);
+        dispatch(logout());
+      } finally {
+        setSessionRestored(true);
+      }
+    };
+
+    restoreSession();
+  }, [dispatch, token, isAuthenticated, user]);
+
   const handleLogout = () => {
     dispatch(logout());
+    setIsBanned(false);
+    setBanInfo(null);
   };
 
-  return (
-    <Router>
-      <div className="App">
-        <nav className="navbar">
-          <Link to="/" className="navbar-brand">
-            ImagerBoard
-          </Link>
-          <div className="nav-links">
-            <Link to="/" className="nav-link">
-              Главная
-            </Link>
-            
-            {isAuthenticated && (
-              <>
-                <Link to="/profile" className="nav-link">
-                  Профиль
-                </Link>
-                {(user?.role === 'admin' || user?.role === 'moderator') && (
-                  <Link to="/admin" className="nav-link">
-                    Админка
-                  </Link>
-                )}
-              </>
-            )}
-            
-            {isAuthenticated ? (
-              <>
-                <span className="nav-username">
-                  👋 {user?.username || 'Пользователь'}
-                </span>
-                <button onClick={handleLogout} className="btn btn-outline">
-                  Выйти
-                </button>
-              </>
-            ) : (
-              <>
-                <Link to="/login" className="nav-link">
-                  Вход
-                </Link>
-                <Link to="/register" className="btn btn-primary">
-                  Регистрация
-                </Link>
-              </>
-            )}
+  if (!sessionRestored) {
+    return (
+      <>
+        <div className="App">
+          <div className="loader-container">
+            <div className="loader"></div>
+            <p>Загрузка...</p>
           </div>
-        </nav>
+        </div>
+        <ToastContainer position="top-right" autoClose={3000} />
+      </>
+    );
+  }
 
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/board/:boardCode" element={<BoardPage />} />
-          <Route path="/thread/:threadId" element={<ThreadPage />} />
-          
-          {/* Публичные маршруты */}
-          <Route 
-            path="/login" 
-            element={
-              <PublicRoute>
-                <LoginPage />
-              </PublicRoute>
-            } 
-          />
-          <Route 
-            path="/register" 
-            element={
-              <PublicRoute>
-                <RegisterPage />
-              </PublicRoute>
-            } 
-          />
-          
-          {/* Защищённые маршруты */}
-          <Route 
-            path="/profile" 
-            element={
-              <ProtectedRoute>
-                <ProfilePage />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/admin" 
-            element={
-              <RoleRoute allowedRoles={['admin', 'moderator']}>
-                <AdminPage />
-              </RoleRoute>
-            } 
-          />
-        </Routes>
-      </div>
-    </Router>
+  if (isBanned && banInfo) {
+    return (
+      <>
+        <BanNotification 
+          bannedUntil={banInfo.bannedUntil} 
+          isPermanent={banInfo.isPermanent}
+          onLogout={handleLogout}
+        />
+        <ToastContainer position="top-right" autoClose={3000} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Router>
+        <div className="App">
+          <nav className="navbar">
+            <Link to="/" className="navbar-brand">
+              ImagerBoard
+            </Link>
+            <div className="nav-links">
+              <Link to="/" className="nav-link">
+                Главная
+              </Link>
+              
+              {isAuthenticated && (
+                <>
+                  <Link to="/profile" className="nav-link">
+                    Профиль
+                  </Link>
+                  {(user?.role === 'admin' || user?.role === 'moderator') && (
+                    <Link to="/admin" className="nav-link">
+                      Админка
+                    </Link>
+                  )}
+                </>
+              )}
+              
+              {isAuthenticated ? (
+                <>
+                  <span className="nav-username">
+                    👋 {user?.username || 'Пользователь'}
+                  </span>
+                  <button onClick={handleLogout} className="btn btn-outline">
+                    Выйти
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" className="nav-link">
+                    Вход
+                  </Link>
+                  <Link to="/register" className="btn btn-primary">
+                    Регистрация
+                  </Link>
+                </>
+              )}
+            </div>
+          </nav>
+
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/board/:boardCode" element={<BoardPage />} />
+            <Route path="/thread/:threadId" element={<ThreadPage />} />
+            
+            <Route 
+              path="/login" 
+              element={
+                <PublicRoute>
+                  <LoginPage />
+                </PublicRoute>
+              } 
+            />
+            <Route 
+              path="/register" 
+              element={
+                <PublicRoute>
+                  <RegisterPage />
+                </PublicRoute>
+              } 
+            />
+            
+            <Route 
+              path="/profile" 
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin" 
+              element={
+                <RoleRoute allowedRoles={['admin', 'moderator']}>
+                  <AdminPage />
+                </RoleRoute>
+              } 
+            />
+          </Routes>
+        </div>
+      </Router>
+      
+      {/* 🔴 ToastContainer для всех уведомлений */}
+      <ToastContainer 
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={true}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
+    </>
   );
 }
 

@@ -1,0 +1,51 @@
+.ban-notification {
+  max-width: 500px;
+  margin: 100px auto;
+  padding: 40px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  border: 3px solid #dc3545;
+}
+
+.ban-icon {
+  font-size: 80px;
+  margin-bottom: 20px;
+}
+
+.ban-notification h3 {
+  color: #dc3545;
+  margin-bottom: 15px;
+  font-size: 28px;
+}
+
+.ban-reason {
+  color: #333;
+  font-size: 18px;
+  margin-bottom: 20px;
+  font-weight: 500;
+}
+
+.ban-message {
+  color: #666;
+  margin-bottom: 30px;
+  line-height: 1.6;
+}
+
+.btn-logout {
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: white;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-logout:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 65, 108, 0.4);
+}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import { toast } from 'react-toastify'; 
 import './RegisterPage.css';
 
 const RegisterPage = () => {
@@ -23,41 +24,52 @@ const RegisterPage = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  e.preventDefault();
+  setError('');
+  setLoading(true);
 
-    // Валидация паролей
-    if (password !== confirmPassword) {
-      setError('Пароли не совпадают');
-      setLoading(false);
-      return;
-    }
+  if (password !== confirmPassword) {
+    toast.error('❌ Пароли не совпадают', {
+      position: 'top-right',
+      autoClose: 3000,
+    });
+    setLoading(false);
+    return;
+  }
 
-    // Валидация длины пароля
-    if (password.length < 6) {
-      setError('Пароль должен быть не менее 6 символов');
-      setLoading(false);
-      return;
-    }
+  if (password.length < 6) {
+    toast.error('❌ Пароль должен быть не менее 6 символов', {
+      position: 'top-right',
+      autoClose: 3000,
+    });
+    setLoading(false);
+    return;
+  }
 
-    try {
-      await authService.register({
-        username,
-        email,
-        password,
-      });
-      
-      // Перенаправляем на страницу входа
-      navigate('/login', { 
-        state: { message: 'Регистрация успешна! Теперь войдите в систему.' } 
-      });
-    } catch (err) {
-      setError(err.response?.data?.message || 'Ошибка при регистрации');
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    await authService.register({
+      username,
+      email,
+      password,
+    });
+    
+    toast.success('✅ Регистрация успешна! Теперь войдите в систему', {
+      position: 'top-right',
+      autoClose: 3000,
+    });
+    
+    navigate('/login', { 
+      state: { message: 'Регистрация успешна! Теперь войдите в систему.' } 
+    });
+  } catch (err) {
+    toast.error(err.response?.data?.message || '❌ Ошибка при регистрации', {
+      position: 'top-right',
+      autoClose: 4000,
+    });
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="register-container">

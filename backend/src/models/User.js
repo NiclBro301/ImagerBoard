@@ -72,7 +72,19 @@ userSchema.methods.updateLastLogin = async function () {
 
 // Метод для проверки бана
 userSchema.methods.isBanned = function () {
-  return this.bannedUntil && this.bannedUntil > Date.now();
+  
+  if (!this.isActive) {
+    if (this.bannedUntil === null) {
+      console.log('   ✅ Постоянный бан');
+      return true;
+    }
+    if (this.bannedUntil > Date.now()) {
+      console.log('   ✅ Временный бан (ещё действует)');
+      return true;
+    }
+  }
+  
+  return false;
 };
 
 // Метод для получения публичных данных пользователя

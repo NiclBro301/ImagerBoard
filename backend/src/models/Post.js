@@ -7,23 +7,39 @@ const postSchema = new mongoose.Schema(
       ref: 'Thread',
       required: [true, 'Тред обязателен'],
     },
-    content: {
-      type: String,
-      required: [true, 'Содержание обязательно'],
-      trim: true,
-    },
-    image: {
-      type: String,
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       default: null,
     },
     author: {
       type: String,
       default: 'Аноним',
     },
+    content: {
+      type: String,
+      required: [true, 'Содержимое обязательно'],
+      maxlength: [5000, 'Пост не может быть длиннее 5000 символов'],
+    },
+    image: {
+      type: String,
+      default: null,
+    },
+    ipHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
     likes: {
       type: Number,
       default: 0,
     },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     isDeleted: {
       type: Boolean,
       default: false,
@@ -34,26 +50,43 @@ const postSchema = new mongoose.Schema(
   }
 );
 
-// Виртуальное поле для форматированной даты
-postSchema.virtual('createdAtFormatted').get(function () {
-  return this.createdAt.toLocaleString('ru-RU');
-});
-
-// Метод для лайка поста
-postSchema.methods.like = async function () {
-  this.likes += 1;
+// 🔴 НОВЫЕ МЕТОДЫ ДЛЯ ЛАЙКОВ
+postSchema.methods.like = async function (userId) {
+  if (!userId) throw new Error('Требуется userId');
+  
+  // Проверяем, не лайкал ли уже пользователь
+  if (this.likedBy.includes(userId)) {
+    throw new Error('Вы уже лайкали этот пост');
+  }
+  
+  // Добавляем пользователя в массив лайкнувших
+  this.likedBy.push(userId);
+  this.likes = this.likedBy.length;
+  
   await this.save();
+  return this;
 };
 
-// Метод для удаления лайка
-postSchema.methods.unlike = async function () {
-  this.likes = Math.max(0, this.likes - 1);
+postSchema.methods.unlike = async function (userId) {
+  if (!userId) throw new Error('Требуется userId');
+  
+  // Проверяем, лайкал ли пользователь
+  if (!this.likedBy.includes(userId)) {
+    throw new Error('Вы не лайкали этот пост');
+  }
+  
+  // Удаляем пользователя из массива
+  this.likedBy = this.likedBy.filter(id => id.toString() !== userId.toString());
+  this.likes = this.likedBy.length;
+  
   await this.save();
+  return this;
 };
 
-// Создаем индексы для оптимизации запросов
+// Индексы для оптимизации
 postSchema.index({ thread: 1, createdAt: 1 });
-postSchema.index({ createdAt: -1 });
+postSchema.index({ user: 1 });
+postSchema.index({ ipHash: 1 });
 
 const Post = mongoose.model('Post', postSchema);
 

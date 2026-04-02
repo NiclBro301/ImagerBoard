@@ -3,27 +3,26 @@ const router = express.Router();
 const {
   register,
   login,
-  logout,
   getMe,
+  logout,
+  getUserStats,
 } = require('../controllers/authController');
-const { protect } = require('../middleware/auth');
 const {
-  validateRegister,
-  validateLogin,
-  handleValidationErrors,
-} = require('../middleware/validation');
+  getNotifications,
+  markAsRead,
+  markAllAsRead,
+} = require('../controllers/notificationController');  // 🔴 ДОБАВЛЕНО
+const { protect } = require('../middleware/auth');
 
-// Публичные роуты
-router.post(
-  '/register',
-  validateRegister,
-  handleValidationErrors,
-  register
-);
-router.post('/login', validateLogin, handleValidationErrors, login);
-router.post('/logout', logout);
-
-// Защищённые роуты
+router.post('/register', register);
+router.post('/login', login);
+router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
+router.get('/me/stats', protect, getUserStats);
+
+// 🔴 ДОБАВЛЕНО: роуты для уведомлений
+router.get('/notifications', protect, getNotifications);
+router.patch('/notifications/:id/read', protect, markAsRead);
+router.patch('/notifications/read-all', protect, markAllAsRead);
 
 module.exports = router;

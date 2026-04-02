@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';  // Было 3000, должно быть 5000
+const API_URL = 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,7 +9,7 @@ const api = axios.create({
   },
 });
 
-// Добавляем токен к каждому запросу
+// 🔴 Добавляем токен к каждому запросу
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -18,18 +18,17 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Обработка ошибок
+// 🔴 Обработка 401 — автоматический логаут
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/';
+      localStorage.removeItem('user');
+      // Не делаем редирект здесь — App.js обработает через Redux
     }
     return Promise.reject(error);
   }

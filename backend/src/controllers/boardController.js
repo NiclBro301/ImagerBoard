@@ -1,20 +1,24 @@
 const Board = require('../models/Board');
 
 // @desc    Получить все борды
-// @route   GET /api/boards
-// @access  Public
+// @route   GET /boards
 const getBoards = async (req, res) => {
   try {
+    console.log('🔍 getBoards: запрос получен');  // ← Лог для отладки
+    
     const boards = await Board.find({ isActive: true })
       .sort({ createdAt: -1 })
-      .select('-__v');
+      .lean();
+
+    console.log('✅ getBoards: найдено бордов:', boards.length);
 
     res.status(200).json({
       success: true,
       count: boards.length,
-      data: boards,
+      boards,
     });
   } catch (error) {
+    console.error('❌ Error in getBoards:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при получении бордов',
@@ -23,29 +27,29 @@ const getBoards = async (req, res) => {
   }
 };
 
-
 // @desc    Получить борд по коду
-// @route   GET /api/boards/code/:code
-// @access  Public
+// @route   GET /boards/:code
 const getBoardByCode = async (req, res) => {
   try {
-    const board = await Board.findOne({ 
-      code: req.params.code,
-      isActive: true 
-    }).select('-__v');
+    const { code } = req.params;
+    console.log('🔍 getBoardByCode: code =', code);  // ← Лог для отладки
 
+    const board = await Board.findOne({ code: code });
+    
     if (!board) {
-      return res.status(404).json({
-        success: false,
-        message: 'Борд не найден',
+      console.log('❌ Борд не найден:', code);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Борд не найден' 
       });
     }
 
     res.status(200).json({
       success: true,
-      data: board,
+      board,
     });
   } catch (error) {
+    console.error('❌ Error in getBoardByCode:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при получении борда',

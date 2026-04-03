@@ -3,9 +3,10 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-ro
 import { useSelector, useDispatch } from 'react-redux';
 import { setCredentials, logout } from './store/authSlice';
 import { fetchBoards } from './store/boardsSlice';
-import api from './services/api';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import api from './services/api';
+import { authService } from './services/authService';
 
 import HomePage from './pages/HomePage';
 import BoardPage from './pages/BoardPage';
@@ -47,10 +48,34 @@ function App() {
   const [isBanned, setIsBanned] = useState(false);
   const [banInfo, setBanInfo] = useState(null);
   const [sessionRestored, setSessionRestored] = useState(false);
+  
+  // 🔴 Состояние для уведомлений
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     dispatch(fetchBoards());
   }, [dispatch]);
+
+  // 🔴 Загрузка количества непрочитанных уведомлений
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      fetchUnreadCount();
+      // Обновляем каждые 30 секунд
+      const interval = setInterval(fetchUnreadCount, 30000);
+      return () => clearInterval(interval);
+    } else {
+      setUnreadCount(0);
+    }
+  }, [isAuthenticated, token]);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const response = await authService.getNotifications({ unreadOnly: true, limit: 1 });
+      setUnreadCount(response.data?.total || 0);
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+    }
+  };
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -93,6 +118,7 @@ function App() {
     dispatch(logout());
     setIsBanned(false);
     setBanInfo(null);
+    setUnreadCount(0);
   };
 
   if (!sessionRestored) {
@@ -112,11 +138,7 @@ function App() {
   if (isBanned && banInfo) {
     return (
       <>
-        <BanNotification 
-          bannedUntil={banInfo.bannedUntil} 
-          isPermanent={banInfo.isPermanent}
-          onLogout={handleLogout}
-        />
+        <BanNotification bannedUntil={banInfo.bannedUntil} isPermanent={banInfo.isPermanent} onLogout={handleLogout} />
         <ToastContainer position="top-right" autoClose={3000} />
       </>
     );
@@ -127,44 +149,34 @@ function App() {
       <Router>
         <div className="App">
           <nav className="navbar">
-            <Link to="/" className="navbar-brand">
-              ImagerBoard
-            </Link>
+            <Link to="/" className="navbar-brand">ImagerBoard</Link>
             <div className="nav-links">
-              <Link to="/" className="nav-link">
-                Главная
-              </Link>
+              <Link to="/" className="nav-link">Главная</Link>
               
               {isAuthenticated && (
                 <>
                   <Link to="/profile" className="nav-link">
                     Профиль
+                    {/* 🔴 БЕЙДЖ УВЕДОМЛЕНИЙ */}
+                    {unreadCount > 0 && (
+                      <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                    )}
                   </Link>
                   {(user?.role === 'admin' || user?.role === 'moderator') && (
-                    <Link to="/admin" className="nav-link">
-                      Админка
-                    </Link>
+                    <Link to="/admin" className="nav-link">Админка</Link>
                   )}
                 </>
               )}
               
               {isAuthenticated ? (
                 <>
-                  <span className="nav-username">
-                    👋 {user?.username || 'Пользователь'}
-                  </span>
-                  <button onClick={handleLogout} className="btn btn-outline">
-                    Выйти
-                  </button>
+                  <span className="nav-username">👋 {user?.username || 'Пользователь'}</span>
+                  <button onClick={handleLogout} className="btn btn-outline">Выйти</button>
                 </>
               ) : (
                 <>
-                  <Link to="/login" className="nav-link">
-                    Вход
-                  </Link>
-                  <Link to="/register" className="btn btn-primary">
-                    Регистрация
-                  </Link>
+                  <Link to="/login" className="nav-link">Вход</Link>
+                  <Link to="/register" className="btn btn-primary">Регистрация</Link>
                 </>
               )}
             </div>
@@ -174,59 +186,17 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/board/:boardCode" element={<BoardPage />} />
             <Route path="/thread/:threadId" element={<ThreadPage />} />
-            
-            <Route 
-              path="/login" 
-              element={
-                <PublicRoute>
-                  <LoginPage />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/register" 
-              element={
-                <PublicRoute>
-                  <RegisterPage />
-                </PublicRoute>
-              } 
-            />
-            
-            <Route 
-              path="/profile" 
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/admin" 
-              element={
-                <RoleRoute allowedRoles={['admin', 'moderator']}>
-                  <AdminPage />
-                </RoleRoute>
-              } 
-            />
+            <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+            <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+            <Route path="/admin" element={<RoleRoute allowedRoles={['admin', 'moderator']}><AdminPage /></RoleRoute>} />
           </Routes>
         </div>
       </Router>
       
-      {/* 🔴 ToastContainer для всех уведомлений */}
-      <ToastContainer 
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={true}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
+      <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop={true} closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme="light" />
     </>
   );
-}
+};
 
 export default App;

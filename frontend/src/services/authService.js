@@ -7,10 +7,11 @@ export const authService = {
   getCurrentUser: () => api.get('/auth/me'),
   getUserStats: () => api.get('/auth/me/stats'),
   
-  // 🔴 Методы для уведомлений
+  // Уведомления
   getNotifications: (params = {}) => api.get('/auth/notifications', { params }),
   markNotificationAsRead: (id) => api.patch(`/auth/notifications/${id}/read`),
   markAllNotificationsAsRead: () => api.patch('/auth/notifications/read-all'),
+  deleteNotification: (id) => api.delete(`/auth/notifications/${id}`),
 };
 
 export default authService;

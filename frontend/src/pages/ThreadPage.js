@@ -21,7 +21,36 @@ const ThreadPage = () => {
     image: null,
   });
   const [imagePreview, setImagePreview] = useState(null);
-  const [quotedPostIds, setQuotedPostIds] = useState(new Set());
+  const [quotedPosts, setQuotedPosts] = useState({});
+
+  // 🔴 ИСПРАВЛЕННАЯ функция очистки цитаты - берём только ПОСЛЕДНИЙ уровень
+  const cleanQuoteForDisplay = (text) => {
+    if (!text) return '';
+    
+    const lines = text.split('\n');
+    const quoteLines = [];
+    
+    // Собираем все строки-цитаты
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        quoteLines.push(trimmed);
+      }
+    }
+    
+    // Если есть цитаты, берём ПОСЛЕДНЮЮ (самую свежую)
+    if (quoteLines.length > 0) {
+      const lastQuote = quoteLines[quoteLines.length - 1];
+      // Убираем префикс > и возвращаем
+      return lastQuote.replace(/^>\s*/, '').trim();
+    }
+    
+    // Если нет цитат, возвращаем весь текст без цитат
+    return lines
+      .filter(line => !line.trim().startsWith('>'))
+      .join('\n')
+      .trim();
+  };
 
   useEffect(() => {
     loadThread();
@@ -42,7 +71,7 @@ const ThreadPage = () => {
     try {
       setLoading(true);
       const response = await postService.getAll(threadId);
-      setPosts(response.data.posts);
+      setPosts(response.data.posts || []);
     } catch (error) {
       console.error('Error loading posts:', error);
     } finally {
@@ -73,6 +102,90 @@ const ThreadPage = () => {
     setFormData({ ...formData, image: null });
     setImagePreview(null);
     document.getElementById('post-image').value = '';
+  };
+
+  // 🔴 ИСПРАВЛЕННАЯ функция цитирования
+ const handleQuote = (post) => {
+  if (quotedPosts[post._id]) {
+    toast.warning('⚠️ Вы уже цитируете этот пост', {
+      position: 'top-right',
+      autoClose: 2500,
+    });
+    return;
+  }
+
+  console.log('=== HANDLEQUOTE ===');
+  console.log('📝 Исходный post.content:', post.content);
+  console.log('👤 post.author:', post.author);
+  
+  // Очищаем от HTML тегов
+  let cleanContent = post.content
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+  
+  console.log('🧹 После очистки HTML:', cleanContent);
+  
+  const lines = cleanContent.split('\n');
+  console.log('📋 Строки:', lines);
+  
+  const quoteLines = [];
+  const textLines = [];
+  
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('>')) {
+      quoteLines.push({ index, text: trimmed.replace(/^>\s*/, '').trim() });
+      console.log(`💬 Цитата [${index}]:`, trimmed);
+    } else if (trimmed.length > 0) {
+      textLines.push({ index, text: trimmed });
+      console.log(`📝 Текст [${index}]:`, trimmed);
+    }
+  });
+  
+  // 🔴 ИСПРАВЛЕНО: Приоритет — НОВЫЙ ТЕКСТ, не цитаты!
+  let finalContent = '';
+  
+  if (textLines.length > 0) {
+    // 🔹 ЕСТЬ НОВЫЙ ТЕКСТ — берём его (это самый свежий ответ)
+    finalContent = textLines.map(t => t.text).join('\n').trim();
+    console.log('✅ Выбран НОВЫЙ ТЕКСТ:', finalContent);
+  } else if (quoteLines.length > 0) {
+    // 🔹 Нет текста — берём ПОСЛЕДНЮЮ цитату
+    finalContent = quoteLines[quoteLines.length - 1].text;
+    console.log('✅ Выбрана последняя цитата:', finalContent);
+  } else {
+    finalContent = 'Без текста';
+    console.log('⚠️ Пустой пост');
+  }
+  
+  console.log('🎯 Итоговый контент для цитаты:', finalContent);
+  console.log('===================');
+
+  setQuotedPosts(prev => ({
+    ...prev,
+    [post._id]: {
+      postId: post._id,
+      author: post.author || 'Аноним',
+      content: finalContent || 'Без текста',
+      timestamp: new Date(post.createdAt).toLocaleString('ru-RU'),
+    }
+  }));
+
+  toast.success('📝 Цитата добавлена', {
+    position: 'top-right',
+    autoClose: 2000,
+  });
+};
+
+  const handleRemoveQuote = (postId) => {
+    setQuotedPosts(prev => {
+      const newQuotes = { ...prev };
+      delete newQuotes[postId];
+      return newQuotes;
+    });
   };
 
   const handleLike = async (postId) => {
@@ -109,31 +222,6 @@ const ThreadPage = () => {
     }
   };
 
-  const handleQuote = (post) => {
-  if (quotedPostIds.has(post._id)) {
-    toast.warning('⚠️ Вы уже цитируете этот пост', {
-      position: 'top-right',
-      autoClose: 2500,
-    });
-    return;
-  }
-
-  // 🔴 Форматируем цитату как блок (Telegram-style)
-  const quoteText = `> ${post.author || 'Аноним'}\n> ${post.content.substring(0, 150)}${post.content.length > 150 ? '...' : ''}\n\n`;
-  
-  setFormData({
-    ...formData,
-    content: formData.content + quoteText,
-  });
-
-  setQuotedPostIds(prev => new Set(prev).add(post._id));
-  
-  toast.success('📝 Цитата добавлена', {
-    position: 'top-right',
-    autoClose: 2000,
-  });
-};
-
   const handleDeletePost = async (postId, postAuthor) => {
     const confirmed = window.confirm(`Вы уверены, что хотите удалить пост "${postAuthor}"?`);
     if (!confirmed) return;
@@ -159,7 +247,19 @@ const ThreadPage = () => {
     
     try {
       const formDataToSend = new FormData();
-      formDataToSend.append('content', formData.content);
+      
+      let finalContent = formData.content;
+      
+      const quotedPostsArray = Object.values(quotedPosts);
+      if (quotedPostsArray.length > 0) {
+        const quotePrefix = quotedPostsArray.map(quote => 
+          `> ${quote.author}\n> ${quote.content.replace(/\n/g, ' ')}`
+        ).join('\n\n');
+        
+        finalContent = quotePrefix + '\n\n' + formData.content;
+      }
+      
+      formDataToSend.append('content', finalContent);
       
       if (formData.image) {
         formDataToSend.append('image', formData.image);
@@ -169,7 +269,7 @@ const ThreadPage = () => {
       
       setFormData({ content: '', image: null });
       setImagePreview(null);
-      setQuotedPostIds(new Set());
+      setQuotedPosts({});
       loadPosts();
       
       toast.success('✅ Пост успешно создан!', {
@@ -205,7 +305,6 @@ const ThreadPage = () => {
         </div>
       </div>
 
-      {/* Основной пост треда */}
       <div className="thread-main-post card">
         <div className="post-header">
           <div className="post-author">
@@ -226,17 +325,6 @@ const ThreadPage = () => {
               {new Date(thread?.createdAt).toLocaleString('ru-RU')}
             </span>
           </div>
-          
-          {(isAuthenticated && (user?.role === 'admin' || user?.role === 'moderator')) && (
-            <div className="post-actions">
-              <button className="btn-action" title="Закрепить тред">
-                📌
-              </button>
-              <button className="btn-action" title="Удалить тред">
-                🗑️
-              </button>
-            </div>
-          )}
         </div>
         
         <div className="post-content">
@@ -256,7 +344,6 @@ const ThreadPage = () => {
         </div>
       </div>
 
-      {/* Список ответов */}
       <div className="posts-section">
         <h2>Ответы ({posts.length})</h2>
         
@@ -287,7 +374,7 @@ const ThreadPage = () => {
                   className="btn-action" 
                   title="Цитировать"
                   onClick={() => handleQuote(post)}
-                  disabled={quotedPostIds.has(post._id)}
+                  disabled={!!quotedPosts[post._id]}
                 >
                   💬
                 </button>
@@ -345,7 +432,6 @@ const ThreadPage = () => {
         ))}
       </div>
 
-      {/* Индикатор автора в форме */}
       <div className="form-author-indicator">
         {isAuthenticated ? (
           <span>👤 Вы публикуете как: <strong>{user?.username}</strong> <em>(зарегистрирован)</em></span>
@@ -354,7 +440,22 @@ const ThreadPage = () => {
         )}
       </div>
 
-      {/* Форма ответа */}
+      {Object.keys(quotedPosts).length > 0 && (
+        <div className="quotes-preview">
+          <h4>📋 Цитаты:</h4>
+          {Object.values(quotedPosts).map((quote) => (
+            <div key={quote.postId} className="quote-block-compact">
+              <div className="quote-header">
+                <span className="quote-author">{quote.author}</span>
+                <span className="quote-time">{quote.timestamp}</span>
+                <button className="btn-remove-quote" onClick={() => handleRemoveQuote(quote.postId)}>✕</button>
+              </div>
+              <p className="quote-text">{quote.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="reply-form card">
         <h3>Ответить в тред</h3>
         <form onSubmit={handleSubmit}>

@@ -4,7 +4,6 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const crypto = require('crypto');
 
-// Функция для очистки текста от лишних переносов строк
 const cleanText = (text) => {
   if (!text) return text;
   return text
@@ -13,9 +12,61 @@ const cleanText = (text) => {
     .replace(/^\n+|\n+$/g, '');
 };
 
-// @desc    Получить все посты треда
-// @route   GET /api/posts/thread/:threadId
-// @access  Public
+const findQuotedPost = async (threadId, content, currentUserId) => {
+  try {
+    const lines = content.split('\n');
+    
+    for (let i = 0; i < lines.length - 1; i++) {
+      const line = lines[i].trim();
+      
+      if (line.startsWith('>') && !line.startsWith('>>')) {
+        const quotedAuthor = line.replace(/^>\s*/, '').trim();
+        
+        const quoteTextLines = [];
+        let j = i + 1;
+        
+        while (j < lines.length && lines[j].trim().startsWith('>')) {
+          const quoteLine = lines[j].trim().replace(/^>\s*/, '');
+          quoteTextLines.push(quoteLine);
+          j++;
+        }
+        
+        const quotedText = quoteTextLines.join(' ').trim();
+        
+        if (quotedAuthor && quotedText && quotedAuthor !== 'Аноним') {
+          const quotedPost = await Post.findOne({
+            thread: threadId,
+            author: quotedAuthor,
+            isDeleted: false
+          })
+          .sort({ createdAt: -1 })
+          .populate('user');
+          
+          if (quotedPost) {
+            if (quotedPost.content.includes(quotedText.substring(0, 30))) {
+              if (currentUserId && quotedPost.user && 
+                  quotedPost.user._id.toString() === currentUserId.toString()) {
+                continue;
+              }
+              
+              return {
+                post: quotedPost,
+                author: quotedAuthor,
+                content: quotedText.substring(0, 100)
+              };
+            }
+          }
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error in findQuotedPost:', error);
+    return null;
+  }
+};
+
 const getPosts = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -58,15 +109,12 @@ const getPosts = async (req, res) => {
   }
 };
 
-// @desc    Создать пост
-// @route   POST /api/posts/thread/:threadId
-// @access  Protected (требуется авторизация)
 const createPost = async (req, res) => {
   try {
     const { threadId } = req.params;
     const { content, author } = req.body;
 
-    const thread = await Thread.findById(threadId);
+    const thread = await Thread.findById(threadId).populate('user');
     if (!thread || thread.isDeleted) {
       return res.status(404).json({
         success: false,
@@ -81,24 +129,65 @@ const createPost = async (req, res) => {
       image = `/uploads/images/${req.file.filename}`;
     }
 
-    // 🔴 Генерируем хеш IP + User-Agent (для анонимов)
     const ipHash = req.user 
-      ? null  // Для зарегистрированных не нужно
+      ? null
       : crypto.createHash('sha256')
           .update(`${req.ip}|${req.headers['user-agent']}`)
           .digest('hex')
-          .slice(0, 16);  // Первые 16 символов
+          .slice(0, 16);
 
     const postData = {
-  thread: threadId,
-  content: cleanedContent,
-  author: req.user?.username || author || 'Аноним',
-  image,
-  user: req.user?._id || null,  // ← Сохраняем ID авторизованного пользователя
-  ipHash: ipHash,
-};
+      thread: threadId,
+      content: cleanedContent,
+      author: req.user?.username || author || 'Аноним',
+      image,
+      user: req.user?._id || null,
+      ipHash: ipHash,
+    };
+
     const post = await Post.create(postData);
     await thread.incrementPostCount();
+
+    let notificationSent = false;
+
+    if (req.user) {
+      const quoteInfo = await findQuotedPost(threadId, cleanedContent, req.user._id);
+      
+      if (quoteInfo && quoteInfo.post && quoteInfo.post.user) {
+        try {
+          await Notification.create({
+            user: quoteInfo.post.user._id,
+            type: 'quote',
+            post: post._id,
+            thread: thread._id,
+            fromUser: req.user._id,
+            title: 'Вас процитировали',
+            message: `${req.user.username} процитировал ваш пост`,
+            quotePreview: quoteInfo.content,
+            metadata: {
+              author: quoteInfo.author,
+              originalContent: quoteInfo.content,
+            },
+          });
+          notificationSent = true;
+        } catch (notifError) {
+          console.error('Error creating quote notification:', notifError);
+        }
+      }
+    }
+
+    if (!notificationSent && thread.user && thread.user._id.toString() !== (req.user?._id?.toString() || 'anonymous')) {
+      await Notification.create({
+        user: thread.user._id,
+        type: 'reply',
+        post: post._id,
+        thread: thread._id,
+        fromUser: req.user?._id || null,
+        title: 'Новый ответ в вашем треде',
+        message: `${post.author} ответил в треде "${thread.title}"`,
+        quotePreview: cleanedContent.substring(0, 100),
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -114,15 +203,6 @@ const createPost = async (req, res) => {
   }
 };
 
-// Вспомогательная функция для хеширования анонима
-const generateAnonymousHash = (ip, userAgent) => {
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(`${ip}|${userAgent}`).digest('hex').slice(0, 16);
-};
-
-// @desc    Обновить пост
-// @route   PUT /api/posts/:id
-// @access  Private/Admin
 const updatePost = async (req, res) => {
   try {
     const { content, author } = req.body;
@@ -161,9 +241,6 @@ const updatePost = async (req, res) => {
   }
 };
 
-// @desc    Удалить пост
-// @route   DELETE /api/posts/:id
-// @access  Private (автор поста или админ/модератор)
 const deletePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id).populate('user');
@@ -206,23 +283,26 @@ const deletePost = async (req, res) => {
   }
 };
 
-// @desc    Лайкнуть пост + создать уведомление
-// @route   POST /api/posts/:id/like
 const likePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id).populate('user');
 
     if (!post || post.isDeleted) {
-      return res.status(404).json({ success: false, message: 'Пост не найден' });
+      return res.status(404).json({
+        success: false,
+        message: 'Пост не найден',
+      });
     }
 
     if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Требуется авторизация' });
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация для лайка',
+      });
     }
 
     await post.like(req.user._id);
 
-    // 🔴 Создаём уведомление для автора поста (если это не он сам)
     if (post.user && post.user._id.toString() !== req.user._id.toString()) {
       await Notification.create({
         user: post.user._id,
@@ -232,9 +312,7 @@ const likePost = async (req, res) => {
         fromUser: req.user._id,
         title: 'Новый лайк',
         message: `${req.user.username} лайкнул ваш пост`,
-        metadata: {
-          postContent: post.content.substring(0, 100),
-        },
+        quotePreview: post.content.substring(0, 100),
       });
     }
 
@@ -246,24 +324,36 @@ const likePost = async (req, res) => {
     });
   } catch (error) {
     if (error.message === 'Вы уже лайкали этот пост') {
-      return res.status(400).json({ success: false, message: error.message });
+      return res.status(400).json({
+        success: false,
+        message: 'Вы уже лайкали этот пост',
+      });
     }
-    res.status(500).json({ success: false, message: 'Ошибка при лайке поста', error: error.message });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при лайке поста',
+      error: error.message,
+    });
   }
 };
 
-// @desc    Убрать лайк с поста
-// @route   POST /api/posts/:id/unlike
 const unlikePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
 
     if (!post || post.isDeleted) {
-      return res.status(404).json({ success: false, message: 'Пост не найден' });
+      return res.status(404).json({
+        success: false,
+        message: 'Пост не найден',
+      });
     }
 
     if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Требуется авторизация' });
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация для удаления лайка',
+      });
     }
 
     await post.unlike(req.user._id);
@@ -276,9 +366,17 @@ const unlikePost = async (req, res) => {
     });
   } catch (error) {
     if (error.message === 'Вы не лайкали этот пост') {
-      return res.status(400).json({ success: false, message: error.message });
+      return res.status(400).json({
+        success: false,
+        message: 'Вы не лайкали этот пост',
+      });
     }
-    res.status(500).json({ success: false, message: 'Ошибка при удалении лайка', error: error.message });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при удалении лайка',
+      error: error.message,
+    });
   }
 };
 

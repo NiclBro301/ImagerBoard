@@ -32,7 +32,7 @@
   font-weight: 600;
 }
 
-/* Основной пост треда - ИСПРАВЛЕННЫЙ ДИЗАЙН */
+/* Основной пост треда */
 .thread-main-post {
   background: white;
   border: 3px solid #667eea;
@@ -206,18 +206,57 @@
   transform: scale(1.1);
 }
 
+/* 🔴 ИСПРАВЛЕНО: Компактные цитаты */
 .post-content {
   color: #333;
-  line-height: 1.8;
+  line-height: 1.6;
   font-size: 15px;
-  white-space: pre-line; /* Сохраняет переносы строк */
+  white-space: pre-line;
+}
+
+/* 🔴 Уменьшенные отступы для цитат */
+.quote-block {
+  display: block;
+  background: #f0f4ff;
+  border-left: 2px solid #667eea;
+  padding: 0.4rem 0.8rem;
+  margin: 0.2rem 0;  /* 🔴 Было 0.5rem, стало 0.2rem */
+  border-radius: 0 3px 3px 0;
+  font-style: normal;
+  color: #333;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.quote-block::before {
+  content: "❝ ";
+  color: #667eea;
+  font-weight: bold;
+  margin-right: 2px;
+}
+
+/* 🔴 Уменьшаем отступы вокруг постов с цитатами */
+.post-content blockquote {
+  margin: 0.2rem 0;  /* 🔴 Было 0.5rem */
+}
+
+/* 🔴 Компактные отступы между элементами в посте */
+.post-content > * + * {
+  margin-top: 0.3rem;  /* 🔴 Было 0.5rem */
+}
+
+/* 🔴 Если цитата идёт сразу после текста или наоборот */
+.post-content p + .quote-block,
+.post-content .quote-block + p,
+.post-content .quote-block + br {
+  margin-top: 0.15rem !important;  /* 🔴 Минимальный отступ */
 }
 
 .thread-main-post .post-content {
   color: #333;
-  line-height: 1.8;
+  line-height: 1.6;
   font-size: 16px;
-  white-space: pre-line; /* Сохраняет переносы строк */
+  white-space: pre-line;
 }
 
 .post-image {
@@ -382,11 +421,11 @@
 }
 
 .post-author.registered .author-name {
-  color: #2563eb; /* синий для зарегистрированных */
+  color: #2563eb;
 }
 
 .post-author.anonymous .author-name {
-  color: #6b7280; /* серый для анонимов */
+  color: #6b7280;
 }
 
 .author-badge {
@@ -434,39 +473,55 @@
   text-decoration: underline;
 }
 
-/* 🔴 ВАЖНО: Когда модалка открыта - блокируем всё под ней */
-body.modal-open .post-card,
-body.modal-open .post-actions,
-body.modal-open .btn-action,
-body.modal-open .btn-like,
-body.modal-open .btn-delete,
-body.modal-open .btn-report,
-body.modal-open .reply-form,
-body.modal-open .thread-main-post {
-  pointer-events: none !important;
+/* 🔴 Компактные цитаты в форме ответа */
+.quotes-preview {
+  background: #f8f9fa;
+  border: 1px solid #667eea;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
 }
 
-/* Отключаем hover эффекты когда модалка открыта */
-body.modal-open .post-card:hover {
-  transform: none !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+.quotes-preview h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #667eea;
 }
 
-body.modal-open .btn-action:hover,
-body.modal-open .btn-like:hover,
-body.modal-open .btn-delete:hover,
-body.modal-open .btn-report:hover {
-  transform: none !important;
-  background: #f8f9fa !important;
-  box-shadow: none !important;
+.quote-block-compact {
+  background: white;
+  border-left: 2px solid #667eea;
+  padding: 0.4rem 0.8rem;
+  margin: 0.3rem 0;
+  border-radius: 0 3px 3px 0;
 }
 
-/* Гарантируем, что модалка выше всего */
-.modal-overlay,
-.modal-content {
-  all: initial;  /* 🔴 Сбрасываем все унаследованные стили */
+.quote-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
 }
 
-.modal-overlay {
-  all: revert;  /* 🔴 Возвращаем наши стили */
+.quote-author {
+  font-weight: 600;
+  color: #667eea;
+  font-size: 0.85rem;
+}
+
+.btn-remove-quote {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.quote-text {
+  margin: 0;
+  color: #333;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }

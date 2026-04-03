@@ -20,7 +20,7 @@ const ProfilePage = () => {
   });
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('info'); // 'info' | 'notifications'
+  const [activeTab, setActiveTab] = useState('info');
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -65,21 +65,59 @@ const ProfilePage = () => {
     }
   };
 
+  // Пометка уведомления как прочитанное
   const handleMarkAsRead = async (notificationId) => {
     try {
       await authService.markNotificationAsRead(notificationId);
-      fetchNotifications();
-      fetchStats(); // Обновляем счётчик непрочитанных
+      
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif._id === notificationId ? { ...notif, isRead: true } : notif
+        )
+      );
+      
+      setStats(prev => ({
+        ...prev,
+        unreadNotifications: Math.max(0, (prev.unreadNotifications || 0) - 1)
+      }));
     } catch (error) {
       console.error('Ошибка при пометке уведомления:', error);
+    }
+  };
+
+  // 🔴 УДАЛЕНИЕ УВЕДОМЛЕНИЯ — БЕЗ ПОДТВЕРЖДЕНИЯ
+  const handleDeleteNotification = async (notificationId, e) => {
+    e.stopPropagation();  // Чтобы не сработал onClick родителя
+    
+    try {
+      await authService.deleteNotification(notificationId);
+      
+      // Удаляем из локального состояния
+      setNotifications(prev => prev.filter(notif => notif._id !== notificationId));
+      
+      // Обновляем счётчик если уведомление было непрочитанным
+      const notif = notifications.find(n => n._id === notificationId);
+      if (notif && !notif.isRead) {
+        setStats(prev => ({
+          ...prev,
+          unreadNotifications: Math.max(0, (prev.unreadNotifications || 0) - 1)
+        }));
+      }
+      
+      toast.success('✅ Уведомление удалено');
+    } catch (error) {
+      toast.error('❌ Ошибка при удалении уведомления');
+      console.error('Error deleting notification:', error);
     }
   };
 
   const handleMarkAllAsRead = async () => {
     try {
       await authService.markAllNotificationsAsRead();
-      fetchNotifications();
-      fetchStats();
+      
+      setNotifications(prev => prev.map(notif => ({ ...notif, isRead: true })));
+      setStats(prev => ({ ...prev, unreadNotifications: 0 }));
+      
       toast.success('✅ Все уведомления прочитаны');
     } catch (error) {
       toast.error('❌ Ошибка при обновлении уведомлений');
@@ -130,7 +168,10 @@ const ProfilePage = () => {
   };
 
   const getNotificationLink = (notification) => {
-    if (notification.thread) {
+    if (notification.thread && typeof notification.thread === 'object') {
+      return `/thread/${notification.thread._id}`;
+    }
+    if (notification.thread && typeof notification.thread === 'string') {
       return `/thread/${notification.thread}`;
     }
     return '#';
@@ -147,7 +188,7 @@ const ProfilePage = () => {
           </div>
         </div>
         
-        {/* 🔴 Вкладки профиля */}
+        {/* Вкладки профиля */}
         <div className="profile-tabs">
           <button 
             className={`tab-btn ${activeTab === 'info' ? 'active' : ''}`}
@@ -197,7 +238,7 @@ const ProfilePage = () => {
                 </div>
               </div>
 
-              {/* 🔴 ИСПРАВЛЕННАЯ СТАТИСТИКА */}
+              {/* Статистика */}
               <div className="info-section">
                 <h4>Статистика</h4>
                 <div className="stats-grid">
@@ -243,6 +284,8 @@ const ProfilePage = () => {
                     <div 
                       key={notif._id} 
                       className={`notification-item ${!notif.isRead ? 'unread' : ''}`}
+                      onClick={() => !notif.isRead && handleMarkAsRead(notif._id)}
+                      style={{ cursor: 'pointer' }}
                     >
                       <div className="notification-icon">
                         {getNotificationIcon(notif.type)}
@@ -254,7 +297,6 @@ const ProfilePage = () => {
                         </div>
                         <p className="notification-message">{notif.message}</p>
                         
-                        {/* 🔴 Превью цитаты для уведомлений о цитировании */}
                         {notif.type === 'quote' && notif.quotePreview && (
                           <div className="quote-preview">
                             <div className="quote-block">
@@ -272,20 +314,25 @@ const ProfilePage = () => {
                         </div>
                       </div>
                       <div className="notification-actions">
-                        {!notif.isRead && (
-                          <button 
-                            className="btn-icon"
-                            onClick={() => handleMarkAsRead(notif._id)}
-                            title="Пометить как прочитанное"
-                          >
-                            ✓
-                          </button>
-                        )}
+                        {/* 🔴 КНОПКА УДАЛЕНИЯ — БЕЗ ПОДТВЕРЖДЕНИЯ */}
+                        <button 
+                          className="btn-icon btn-delete-notif"
+                          onClick={(e) => handleDeleteNotification(notif._id, e)}
+                          title="Удалить уведомление"
+                        >
+                          ✕
+                        </button>
+                        
+                        {/* Ссылка на тред */}
                         {notif.thread && (
                           <Link 
-                            to={`/thread/${notif.thread}`}
+                            to={getNotificationLink(notif)}
                             className="btn-icon"
                             title="Перейти к треду"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!notif.isRead) handleMarkAsRead(notif._id);
+                            }}
                           >
                             ↗
                           </Link>

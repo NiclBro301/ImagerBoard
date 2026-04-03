@@ -382,3 +382,21 @@
     align-self: flex-end;
   }
 }
+
+/* Кнопка удаления уведомления */
+.btn-delete-notif {
+  color: #dc3545;
+  opacity: 0.7;
+  transition: all 0.2s;
+}
+
+.btn-delete-notif:hover {
+  color: #c82333;
+  opacity: 1;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.5rem;
+}

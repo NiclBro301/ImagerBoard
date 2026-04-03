@@ -104,8 +104,42 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
+// 🔴 НОВОЕ: Удалить уведомление
+// @desc    Удалить уведомление
+// @route   DELETE /api/auth/notifications/:id
+// @access  Private
+const deleteNotification = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Требуется авторизация' });
+    }
+
+    const notification = await Notification.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user._id,  // 🔴 Можно удалять только свои уведомления
+    });
+
+    if (!notification) {
+      return res.status(404).json({ success: false, message: 'Уведомление не найдено' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Уведомление удалено',
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при удалении уведомления',
+      error: error.message,
+    });
+  }
+};
+
+// 🔴 Экспорт всех функций
 module.exports = {
   getNotifications,
   markAsRead,
   markAllAsRead,
+  deleteNotification,
 };

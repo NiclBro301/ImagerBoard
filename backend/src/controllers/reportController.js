@@ -2,62 +2,49 @@ const Report = require('../models/Report');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Ban = require('../models/Ban');
-const Thread = require('../models/Thread');
 
-// @desc    Создать жалобу на пост
-// @route   POST /api/reports
-// @access  Private (только авторизованные)
-const createReport = async (req, res) => {
-  try {
-    const { postId, reason, description } = req.body;
-
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Требуется авторизация для отправки жалобы',
-      });
+// 🔴 НОВАЯ функция: Извлекает оригинальный текст из поста (без цитат)
+const extractOriginalText = (content) => {
+  if (!content) return '';
+  
+  // Очищаем от HTML тегов
+  let cleanContent = content
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+  
+  const lines = cleanContent.split('\n');
+  const originalLines = [];
+  
+  // Берём только строки, которые НЕ являются цитатами
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('>')) {
+      originalLines.push(trimmed);
     }
-
-    const post = await Post.findById(postId);
-    if (!post || post.isDeleted) {
-      return res.status(404).json({
-        success: false,
-        message: 'Пост не найден',
-      });
-    }
-
-    const existingReport = await Report.findOne({
-      post: postId,
-      user: req.user._id,
-      status: 'pending',
-    });
-
-    if (existingReport) {
-      return res.status(400).json({
-        success: false,
-        message: 'Вы уже отправляли жалобу на этот пост',
-      });
-    }
-
-    const report = await Report.create({
-      post: postId,
-      user: req.user._id,
-      reason,
-      description,
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Жалоба отправлена успешно',
-      report,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Ошибка при создании жалобы',
-      error: error.message,
-    });
   }
+  
+  // Если есть оригинальный текст — возвращаем его
+  if (originalLines.length > 0) {
+    return originalLines.join(' ').trim();
+  }
+  
+  // Если нет оригинального текста, берём последнюю цитату
+  const quoteLines = [];
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('>')) {
+      quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+    }
+  }
+  
+  if (quoteLines.length > 0) {
+    return quoteLines[quoteLines.length - 1];
+  }
+  
+  return cleanContent.trim();
 };
 
 // @desc    Получить все жалобы
@@ -65,31 +52,40 @@ const createReport = async (req, res) => {
 // @access  Private/Admin/Moderator
 const getReports = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status = 'pending', page = 1, limit = 20 } = req.query;
 
-    const filter = {};
-    if (status) {
-      filter.status = status;
+    const query = {};
+    if (status !== 'all') {
+      query.status = status;
     }
 
-    const reports = await Report.find(filter)
+    const reports = await Report.find(query)
       .populate('post', 'content author user')
-      .populate('user', 'username email')
-      .populate('bannedBy', 'username')
+      .populate('reportedBy', 'username email')
+      .populate('resolvedBy', 'username')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .lean();
 
-    const count = await Report.countDocuments(filter);
+    const count = await Report.countDocuments(query);
+
+    // 🔴 ДОБАВЛЯЕМ оригинальный текст к каждой жалобе
+    const reportsWithOriginalText = reports.map(report => {
+      const originalText = report.post ? extractOriginalText(report.post.content) : 'Пост удалён';
+      return {
+        ...report,
+        originalPostText: originalText,
+      };
+    });
 
     res.status(200).json({
       success: true,
-      count: reports.length,
+      count: reportsWithOriginalText.length,
       total: count,
-      page: parseInt(page),
       pages: Math.ceil(count / limit),
-      reports,
+      page: parseInt(page),
+      reports: reportsWithOriginalText,
     });
   } catch (error) {
     res.status(500).json({
@@ -100,16 +96,44 @@ const getReports = async (req, res) => {
   }
 };
 
-// @desc    Получить жалобу по ID
-// @route   GET /api/reports/:id
+// @desc    Получить статистику жалоб
+// @route   GET /api/reports/stats
 // @access  Private/Admin/Moderator
-const getReportById = async (req, res) => {
+const getReportStats = async (req, res) => {
   try {
+    const total = await Report.countDocuments();
+    const pending = await Report.countDocuments({ status: 'pending' });
+    const approved = await Report.countDocuments({ status: 'approved' });
+    const rejected = await Report.countDocuments({ status: 'rejected' });
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        total,
+        pending,
+        approved,
+        rejected,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении статистики',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Обработать жалобу с баном
+// @route   PATCH /api/reports/:id/ban
+// @access  Private/Admin/Moderator
+const processWithBan = async (req, res) => {
+  try {
+    const { banDuration, banReason } = req.body;
+
     const report = await Report.findById(req.params.id)
-      .populate('post', 'content author user')
-      .populate('user', 'username email')
-      .populate('bannedBy', 'username')
-      .lean();
+      .populate('post')
+      .populate('reportedBy');
 
     if (!report) {
       return res.status(404).json({
@@ -118,124 +142,67 @@ const getReportById = async (req, res) => {
       });
     }
 
+    if (report.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Жалоба уже обработана',
+      });
+    }
+
+    // Удаляем пост
+    if (report.post) {
+      report.post.isDeleted = true;
+      await report.post.save();
+    }
+
+    // Банним автора поста
+    if (report.post && report.post.user) {
+      const userToBan = await User.findById(report.post.user);
+      
+      if (userToBan) {
+        userToBan.isActive = false;
+        
+        if (banDuration && banDuration > 0) {
+          userToBan.bannedUntil = new Date(Date.now() + parseInt(banDuration));
+        } else {
+          userToBan.bannedUntil = null; // Перманентный бан
+        }
+
+        await userToBan.save();
+
+        // Создаём запись о бане
+        await Ban.create({
+          user: userToBan._id,
+          bannedBy: req.user._id,
+          reason: banReason || report.reason,
+          expiresAt: userToBan.bannedUntil,
+          isPermanent: !userToBan.bannedUntil,
+        });
+      }
+    }
+
+    report.status = 'approved';
+    report.resolvedBy = req.user._id;
+    await report.save();
+
     res.status(200).json({
       success: true,
+      message: 'Жалоба одобрена, пользователь забанен',
       report,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Ошибка при получении жалобы',
+      message: 'Ошибка при обработке жалобы',
       error: error.message,
     });
   }
 };
 
-// @desc    Обработать жалобу (одобрить или отклонить)
-// @route   PATCH /api/reports/:id/process
-// @access  Private/Admin/Moderator
-const processReport = async (req, res) => {
-  console.log('🔍 Начало обработки жалобы');
-  console.log('   ID жалобы:', req.params.id);
-  console.log('   Действие:', req.body.action);
-  console.log('   Модератор:', req.user?._id);
-
-  try {
-    const { id: reportId } = req.params;
-    const { action, notes } = req.body; // action: 'approve' или 'reject'
-
-    const report = await Report.findById(reportId).populate('post');
-    if (!report) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Жалоба не найдена' 
-      });
-    }
-
-    if (report.status !== 'pending') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Жалоба уже обработана' 
-      });
-    }
-
-    if (action === 'approve') {
-      // 🔹 ОДОБРИТЬ: удалить пост + пометить жалобу
-      const post = report.post;
-      
-      if (post) {
-        // Мягкое удаление поста
-        post.isDeleted = true;
-        await post.save();
-
-        // Декрементируем счётчик постов треда
-        const thread = await Thread.findById(post.thread);
-        if (thread && thread.postCount > 0) {
-          thread.postCount -= 1;
-          await thread.save();
-        }
-
-        console.log('   ✅ Пост удалён:', post._id);
-      }
-
-      // Помечаем жалобу как обработанную
-      report.status = 'banned'; // Статус "banned" = одобрена
-      report.actionTaken = 'delete_post';
-      report.moderatorNotes = notes || 'Жалоба одобрена';
-      report.bannedBy = req.user._id;
-      report.bannedAt = Date.now();
-      await report.save();
-
-      console.log('   ✅ Жалоба одобрена');
-
-      res.status(200).json({
-        success: true,
-        message: 'Жалоба одобрена, пост удалён',
-      });
-
-    } else if (action === 'reject') {
-      // 🔹 ОТКЛОНИТЬ: просто меняем статус
-      report.status = 'rejected';
-      report.actionTaken = 'none';
-      report.moderatorNotes = notes || 'Жалоба отклонена';
-      report.bannedBy = req.user._id;
-      report.bannedAt = Date.now();
-      await report.save();
-
-      console.log('   ❌ Жалоба отклонена');
-
-      res.status(200).json({
-        success: true,
-        message: 'Жалоба отклонена',
-      });
-
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: 'Неверное действие. Используйте "approve" или "reject"',
-      });
-    }
-  } catch (error) {
-    console.error('❌ Ошибка обработки жалобы:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
-    });
-  }
-};
-
-// @desc    Отклонить жалобу (алиас для processReport с action='reject')
+// @desc    Отклонить жалобу
 // @route   PATCH /api/reports/:id/reject
 // @access  Private/Admin/Moderator
 const rejectReport = async (req, res) => {
-  req.body.action = 'reject';
-  return await processReport(req, res);
-};
-
-// @desc    Удалить жалобу
-// @route   DELETE /api/reports/:id
-// @access  Private/Admin
-const deleteReport = async (req, res) => {
   try {
     const report = await Report.findById(req.params.id);
 
@@ -246,7 +213,44 @@ const deleteReport = async (req, res) => {
       });
     }
 
-    await report.deleteOne();
+    if (report.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Жалоба уже обработана',
+      });
+    }
+
+    report.status = 'rejected';
+    report.resolvedBy = req.user._id;
+    await report.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Жалоба отклонена',
+      report,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при отклонении жалобы',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Удалить жалобу
+// @route   DELETE /api/reports/:id
+// @access  Private/Admin
+const deleteReport = async (req, res) => {
+  try {
+    const report = await Report.findByIdAndDelete(req.params.id);
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Жалоба не найдена',
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -262,10 +266,9 @@ const deleteReport = async (req, res) => {
 };
 
 module.exports = {
-  createReport,
   getReports,
-  getReportById,
-  processReport,
+  getReportStats,
+  processWithBan,
   rejectReport,
   deleteReport,
 };

@@ -52,6 +52,50 @@ const AdminPage = () => {
   });
   const [statsLoading, setStatsLoading] = useState(false);
 
+  // 🔴 НОВАЯ функция: Извлекает оригинальный текст из поста (без цитат)
+  const extractOriginalText = (content) => {
+    if (!content) return 'Пост удалён';
+    
+    // Очищаем от HTML тегов и сущностей
+    let cleanContent = content
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+    
+    const lines = cleanContent.split('\n');
+    const originalLines = [];
+    
+    // Берём только строки, которые НЕ являются цитатами
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('>')) {
+        originalLines.push(trimmed);
+      }
+    }
+    
+    // Если есть оригинальный текст — возвращаем его
+    if (originalLines.length > 0) {
+      return originalLines.join(' ').trim();
+    }
+    
+    // Если нет оригинального текста, берём последнюю цитату
+    const quoteLines = [];
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+      }
+    }
+    
+    if (quoteLines.length > 0) {
+      return quoteLines[quoteLines.length - 1];
+    }
+    
+    return cleanContent.trim();
+  };
+
   // Загрузка статистики при входе на дашборд
   useEffect(() => {
     if (activeTab === 'dashboard') {
@@ -182,22 +226,21 @@ const AdminPage = () => {
   };
 
   const loadBoards = async () => {
-  try {
-    setBoardsLoading(true);
-    const response = await boardService.getAll();
-    
-    // 🔴 ИСПРАВЛЕНО: правильно извлекаем массив бордов
-    const boardsData = response.data?.boards || response.data?.data || response.data || [];
-    setBoards(Array.isArray(boardsData) ? boardsData : []);
-    
-    console.log('✅ loadBoards: загружено бордов:', boardsData.length);
-  } catch (error) {
-    console.error('Error loading boards:', error);
-    setBoards([]);
-  } finally {
-    setBoardsLoading(false);
-  }
-};
+    try {
+      setBoardsLoading(true);
+      const response = await boardService.getAll();
+      
+      const boardsData = response.data?.boards || response.data?.data || response.data || [];
+      setBoards(Array.isArray(boardsData) ? boardsData : []);
+      
+      console.log('✅ loadBoards: загружено бордов:', boardsData.length);
+    } catch (error) {
+      console.error('Error loading boards:', error);
+      setBoards([]);
+    } finally {
+      setBoardsLoading(false);
+    }
+  };
 
   // Обработка жалобы: ОДОБРИТЬ
   const handleApprove = async (reportId) => {
@@ -506,7 +549,14 @@ const AdminPage = () => {
                           <span className="report-date">{new Date(report.createdAt).toLocaleString('ru-RU')}</span>
                         </div>
                         <div className="report-content">
-                          <div className="report-info"><strong>Пост:</strong><div className="post-preview"><p>{report.post?.content?.substring(0, 100) || '...'}...</p><small>Автор: {report.post?.author || 'Аноним'}</small></div></div>
+                          <div className="report-info">
+                            <strong>Пост:</strong>
+                            <div className="post-preview">
+                              {/* 🔴 ИСПРАВЛЕНО: Используем extractOriginalText для отображения только оригинального сообщения */}
+                              <p>{extractOriginalText(report.post?.content)}</p>
+                              <small>Автор: {report.post?.author || 'Аноним'}</small>
+                            </div>
+                          </div>
                           <div className="report-info"><strong>Жалоба от:</strong><span>{report.user?.username || 'Неизвестно'}</span></div>
                           <div className="report-info"><strong>Причина:</strong><span>{getReasonText(report.reason)}</span></div>
                           {report.description && <div className="report-info"><strong>Описание:</strong><p>{report.description}</p></div>}
@@ -658,7 +708,7 @@ const AdminPage = () => {
                           onChange={(e) => setBoardFormData({...boardFormData, code: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '')})}
                           placeholder="Например: b"
                           required
-                          disabled={!!editingBoard}  // 🔴 Код нельзя изменить при редактировании
+                          disabled={!!editingBoard}
                           maxLength={10}
                           className="form-input"
                         />
@@ -719,12 +769,11 @@ const AdminPage = () => {
                         <div className="board-card-header">
                           <div className="board-code">/{board.code || 'N/A'}/</div>
                           <div className="board-actions-mini">
-                            {/* 🔴 КНОПКА РЕДАКТИРОВАНИЯ */}
                             <button 
                               className="btn-icon btn-edit" 
                               onClick={() => {
                                 handleEditBoard(board);
-                                setShowCreateBoard(true);  // 🔴 Показываем форму
+                                setShowCreateBoard(true);
                               }} 
                               title="Редактировать"
                             >

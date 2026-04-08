@@ -29,6 +29,50 @@ const ReportsModal = ({ user, onClose }) => {
     }
   };
 
+  // 🔴 НОВАЯ функция: Извлекает оригинальный текст из поста (без цитат)
+  const extractOriginalText = (content) => {
+    if (!content) return 'Пост удалён';
+    
+    // Очищаем от HTML тегов
+    let cleanContent = content
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+    
+    const lines = cleanContent.split('\n');
+    const originalLines = [];
+    
+    // Берём только строки, которые НЕ являются цитатами
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('>')) {
+        originalLines.push(trimmed);
+      }
+    }
+    
+    // Если есть оригинальный текст — возвращаем его
+    if (originalLines.length > 0) {
+      return originalLines.join(' ').trim();
+    }
+    
+    // Если нет оригинального текста, берём последнюю цитату
+    const quoteLines = [];
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+      }
+    }
+    
+    if (quoteLines.length > 0) {
+      return quoteLines[quoteLines.length - 1];
+    }
+    
+    return cleanContent.trim();
+  };
+
   const getReasonText = (reason) => ({
     spam: '📢 Спам',
     offensive: '😤 Оскорбление',
@@ -124,9 +168,9 @@ const ReportsModal = ({ user, onClose }) => {
                         
                         <div className="report-row">
                           <span className="report-label">Пост:</span>
+                          {/* 🔴 ИСПРАВЛЕНО: Используем extractOriginalText */}
                           <span className="report-value report-post">
-                            {report.post?.content?.substring(0, 150)}
-                            {report.post?.content?.length > 150 ? '...' : ''}
+                            {extractOriginalText(report.post?.content)}
                           </span>
                         </div>
                         

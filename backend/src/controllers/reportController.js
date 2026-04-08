@@ -47,6 +47,110 @@ const extractOriginalText = (content) => {
   return cleanContent.trim();
 };
 
+// @desc    Создать жалобу на пост
+// @route   POST /api/reports
+// @access  Private (требуется авторизация)
+const createReport = async (req, res) => {
+  try {
+    const { postId, reason, description } = req.body;
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация для создания жалобы',
+      });
+    }
+
+    // Проверка, что пост существует
+    const post = await Post.findById(postId);
+    if (!post || post.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Пост не найден',
+      });
+    }
+
+    // Проверка, что пользователь не жалуется на свой пост
+    if (post.user && post.user.toString() === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Нельзя пожаловаться на свой пост',
+      });
+    }
+
+    // Проверка, что пользователь ещё не жаловался на этот пост
+    const existingReport = await Report.findOne({
+      post: postId,
+      reportedBy: req.user._id,
+      status: 'pending',
+    });
+
+    if (existingReport) {
+      return res.status(400).json({
+        success: false,
+        message: 'Вы уже подавали жалобу на этот пост',
+      });
+    }
+
+    // Создаём жалобу
+    const report = await Report.create({
+      post: postId,
+      reportedBy: req.user._id,
+      reason: reason || 'other',
+      description: description || '',
+      status: 'pending',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Жалоба успешно создана',
+      report,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при создании жалобы',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Получить жалобу по ID
+// @route   GET /api/reports/:id
+// @access  Private/Admin/Moderator
+const getReportById = async (req, res) => {
+  try {
+    const report = await Report.findById(req.params.id)
+      .populate('post', 'content author user image')
+      .populate('reportedBy', 'username email')
+      .populate('resolvedBy', 'username');
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Жалоба не найдена',
+      });
+    }
+
+    // 🔴 Добавляем оригинальный текст поста
+    const originalText = report.post ? extractOriginalText(report.post.content) : 'Пост удалён';
+
+    res.status(200).json({
+      success: true,
+      report: {
+        ...report.toObject(),
+        originalPostText: originalText,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении жалобы',
+      error: error.message,
+    });
+  }
+};
+
 // @desc    Получить все жалобы
 // @route   GET /api/reports
 // @access  Private/Admin/Moderator
@@ -266,9 +370,11 @@ const deleteReport = async (req, res) => {
 };
 
 module.exports = {
-  getReports,
-  getReportStats,
-  processWithBan,
-  rejectReport,
-  deleteReport,
+  createReport,      // ← Для POST /reports
+  getReportById,     // ← Для GET /reports/:id
+  getReports,        // ← Для GET /reports
+  getReportStats,    // ← Для GET /reports/stats
+  processWithBan,    // ← Для PATCH /reports/:id/ban
+  rejectReport,      // ← Для PATCH /reports/:id/reject
+  deleteReport,      // ← Для DELETE /reports/:id
 };

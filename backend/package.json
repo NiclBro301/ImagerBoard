@@ -8,7 +8,13 @@
     "dev": "nodemon src/index.js",
     "seed": "node src/utils/seeder.js"
   },
-  "keywords": ["express", "nodejs", "mongodb", "forum", "imageboard"],
+  "keywords": [
+    "express",
+    "nodejs",
+    "mongodb",
+    "forum",
+    "imageboard"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -22,7 +28,9 @@
     "mongoose": "^7.0.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
-    "sharp": "^0.32.0"
+    "sharp": "^0.32.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "concurrently": "^7.6.0",

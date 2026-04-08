@@ -4,7 +4,7 @@ const {
   createReport,
   getReports,
   getReportById,
-  processReport,
+  processWithBan, 
   rejectReport,
   deleteReport,
 } = require('../controllers/reportController');
@@ -26,8 +26,8 @@ router.route('/:id')
   .get(getReportById)
   .delete(deleteReport);
 
-// 🔴 Обработка жалобы (одобрить или отклонить)
-router.patch('/:id/process', processReport);
+// 🔴 ИСПРАВЛЕНО: processWithBan вместо processReport
+router.patch('/:id/ban', processWithBan);
 
 // 🔴 Отклонение жалобы (алиас)
 router.patch('/:id/reject', rejectReport);

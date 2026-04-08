@@ -1,0 +1,257 @@
+.search-page {
+  padding: 20px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.search-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.search-header h1 {
+  margin: 0 0 10px 0;
+  font-size: 28px;
+  color: #333;
+}
+
+.search-query {
+  color: #667eea;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.search-summary {
+  padding: 15px 20px;
+  background: linear-gradient(135deg, #e7f3ff 0%, #f0f7ff 100%);
+  border-radius: 8px;
+  color: #333;
+  font-size: 16px;
+  border-left: 4px solid #667eea;
+}
+
+.board-results {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s;
+}
+
+.board-results:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.board-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #667eea;
+}
+
+.board-link {
+  font-weight: 700;
+  color: #667eea;
+  text-decoration: none;
+  font-size: 18px;
+  transition: color 0.2s;
+}
+
+.board-link:hover {
+  color: #5568d3;
+  text-decoration: underline;
+}
+
+.thread-count {
+  color: #6c757d;
+  font-size: 14px;
+  background: #f8f9fa;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.threads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.thread-result {
+  display: block;
+  padding: 18px;
+  border: 2px solid #eee;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.2s;
+  background: #fafbfc;
+}
+
+.thread-result:hover {
+  border-color: #667eea;
+  background: #f8f9ff;
+  transform: translateX(5px);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+}
+
+.thread-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pin-icon {
+  font-size: 16px;
+}
+
+.thread-title {
+  margin: 0;
+  font-size: 17px;
+  color: #333;
+  font-weight: 600;
+}
+
+.thread-preview {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  background: white;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+.thread-meta {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+  color: #888;
+  flex-wrap: wrap;
+}
+
+.thread-author,
+.thread-stats,
+.thread-date {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #f8f9fa;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+/* Пагинация */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  padding: 25px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.pagination-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.pagination-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.pagination-info {
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Состояния */
+.loader {
+  text-align: center;
+  padding: 60px;
+  color: #666;
+}
+
+.error-message {
+  padding: 20px;
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  color: #856404;
+  font-size: 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: #666;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+
+.empty-state .empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.empty-state h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 22px;
+}
+
+.empty-state p {
+  margin: 0 0 25px 0;
+  color: #666;
+}
+
+/* Адаптив */
+@media (max-width: 768px) {
+  .search-page {
+    padding: 15px;
+  }
+  
+  .thread-meta {
+    gap: 10px;
+  }
+  
+  .thread-author,
+  .thread-stats,
+  .thread-date {
+    font-size: 12px;
+    padding: 3px 8px;
+  }
+  
+  .pagination {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}

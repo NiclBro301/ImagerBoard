@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { setCredentials, logout } from './store/authSlice';
 import { fetchBoards } from './store/boardsSlice';
@@ -15,6 +15,7 @@ import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
+import SearchPage from './pages/SearchPage';
 import BanNotification from './components/BanNotification';
 
 import RoleRoute from './components/RoleRoute';
@@ -42,6 +43,71 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
+// 🔴 Компонент навигации с поиском
+const Navbar = ({ isAuthenticated, user, onLogout, unreadCount }) => {
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim().length >= 2) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchQuery('');
+    }
+  };
+
+  return (
+    <nav className="navbar">
+      <Link to="/" className="navbar-brand">ImagerBoard</Link>
+      
+      {/* 🔴 ПОИСКОВАЯ СТРОКА В ХЭДЕРЕ */}
+      <form onSubmit={handleSearch} className="navbar-search">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="🔍 Поиск..."
+          className="search-input"
+          minLength={2}
+        />
+        <button type="submit" className="btn-search" disabled={searchQuery.length < 2}>
+          Найти
+        </button>
+      </form>
+
+      <div className="nav-links">
+        <Link to="/" className="nav-link">Главная</Link>
+        
+        {isAuthenticated && (
+          <>
+            <Link to="/profile" className="nav-link">
+              Профиль
+              {unreadCount > 0 && (
+                <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+              )}
+            </Link>
+            {(user?.role === 'admin' || user?.role === 'moderator') && (
+              <Link to="/admin" className="nav-link">Админка</Link>
+            )}
+          </>
+        )}
+        
+        {isAuthenticated ? (
+          <>
+            <span className="nav-username">👋 {user?.username || 'Пользователь'}</span>
+            <button onClick={onLogout} className="btn btn-outline">Выйти</button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" className="nav-link">Вход</Link>
+            <Link to="/register" className="btn btn-primary">Регистрация</Link>
+          </>
+        )}
+      </div>
+    </nav>
+  );
+};
+
 function App() {
   const dispatch = useDispatch();
   const { isAuthenticated, user, token } = useSelector((state) => state.auth);
@@ -60,7 +126,6 @@ function App() {
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchUnreadCount();
-      // Обновляем каждые 30 секунд
       const interval = setInterval(fetchUnreadCount, 30000);
       return () => clearInterval(interval);
     } else {
@@ -148,44 +213,19 @@ function App() {
     <>
       <Router>
         <div className="App">
-          <nav className="navbar">
-            <Link to="/" className="navbar-brand">ImagerBoard</Link>
-            <div className="nav-links">
-              <Link to="/" className="nav-link">Главная</Link>
-              
-              {isAuthenticated && (
-                <>
-                  <Link to="/profile" className="nav-link">
-                    Профиль
-                    {/* 🔴 БЕЙДЖ УВЕДОМЛЕНИЙ */}
-                    {unreadCount > 0 && (
-                      <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-                    )}
-                  </Link>
-                  {(user?.role === 'admin' || user?.role === 'moderator') && (
-                    <Link to="/admin" className="nav-link">Админка</Link>
-                  )}
-                </>
-              )}
-              
-              {isAuthenticated ? (
-                <>
-                  <span className="nav-username">👋 {user?.username || 'Пользователь'}</span>
-                  <button onClick={handleLogout} className="btn btn-outline">Выйти</button>
-                </>
-              ) : (
-                <>
-                  <Link to="/login" className="nav-link">Вход</Link>
-                  <Link to="/register" className="btn btn-primary">Регистрация</Link>
-                </>
-              )}
-            </div>
-          </nav>
+          {/* 🔴 НАВИГАЦИЯ С ПОИСКОМ */}
+          <Navbar 
+            isAuthenticated={isAuthenticated} 
+            user={user} 
+            onLogout={handleLogout}
+            unreadCount={unreadCount}
+          />
 
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/board/:boardCode" element={<BoardPage />} />
             <Route path="/thread/:threadId" element={<ThreadPage />} />
+            <Route path="/search" element={<SearchPage />} />
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

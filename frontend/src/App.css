@@ -11,6 +11,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
 }
 
 .navbar-brand {
@@ -19,16 +20,65 @@
   text-decoration: none;
   color: #007bff;
   transition: color 0.3s;
+  flex-shrink: 0;
 }
 
 .navbar-brand:hover {
   color: #0056b3;
 }
 
+/* 🔴 ПОИСКОВАЯ СТРОКА В ХЭДЕРЕ */
+.navbar-search {
+  flex: 1;
+  max-width: 400px;
+  display: flex;
+  gap: 8px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.search-input::placeholder {
+  color: #999;
+}
+
+.btn-search {
+  padding: 8px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-search:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.btn-search:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
 .nav-links {
   display: flex;
   gap: 20px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .nav-link {
@@ -36,6 +86,7 @@
   color: #333;
   font-weight: 500;
   transition: color 0.3s;
+  position: relative;
 }
 
 .nav-link:hover {
@@ -46,8 +97,8 @@
 .nav-username {
   font-weight: 500;
   color: #333;
-  cursor: pointer;  /* ← Курсор-палец */
-  user-select: none; /* Запрет выделения текста */
+  cursor: pointer;
+  user-select: none;
   transition: color 0.3s;
 }
 
@@ -57,7 +108,7 @@
 
 /* Кнопка регистрации - убрать подчеркивание */
 .btn.btn-primary {
-  text-decoration: none !important;  /* ← Убираем подчеркивание */
+  text-decoration: none !important;
   padding: 8px 20px;
   border: none;
   border-radius: 4px;
@@ -70,7 +121,7 @@
 
 .btn.btn-primary:hover {
   background-color: #0056b3;
-  text-decoration: none !important;  /* ← Убираем подчеркивание при наведении */
+  text-decoration: none !important;
 }
 
 /* Кнопка выхода */
@@ -148,8 +199,6 @@
   opacity: 1;
 }
 
-/* ... (остальные стили без изменений) ... */
-
 /* 🔴 Бейдж уведомлений в навигации */
 .nav-link {
   position: relative;
@@ -181,7 +230,7 @@
   50% { transform: scale(1.1); }
 }
 
-/* Бейдж в профиле (уже был в ProfilePage.css) */
+/* Бейдж в профиле */
 .tab-badge {
   background: #dc3545;
   color: white;
@@ -253,4 +302,27 @@
   color: #333;
   font-size: 0.95rem;
   line-height: 1.5;
+}
+
+/* 🔴 Адаптив для навигации с поиском */
+@media (max-width: 768px) {
+  .navbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  
+  .navbar-search {
+    order: 3;
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  .nav-links {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  
+  .nav-username {
+    display: none;
+  }
 }

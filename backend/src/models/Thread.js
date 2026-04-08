@@ -7,7 +7,7 @@ const threadSchema = new mongoose.Schema(
       ref: 'Board',
       required: [true, 'Борд обязателен'],
     },
-    // 🔴 ДОБАВЛЕНО: ссылка на автора треда (может быть null для анонимов)
+    // 🔴 Ссылка на автора треда (может быть null для анонимов)
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -59,7 +59,7 @@ const threadSchema = new mongoose.Schema(
   }
 );
 
-// 🔴 Методы для инкремента/декремента счётчиков
+// 🔴 МЕТОДЫ ДЛЯ ИНКРЕМЕНТА/ДЕКРЕМЕНТА СЧЁТЧИКОВ
 threadSchema.methods.incrementPostCount = async function () {
   this.postCount += 1;
   this.lastPostAt = Date.now();
@@ -73,7 +73,7 @@ threadSchema.methods.decrementPostCount = async function () {
   }
 };
 
-// Методы для закрепления
+// 🔴 МЕТОДЫ ДЛЯ ЗАКРЕПЛЕНИЯ
 threadSchema.methods.pin = async function () {
   this.isPinned = true;
   await this.save();
@@ -84,9 +84,27 @@ threadSchema.methods.unpin = async function () {
   await this.save();
 };
 
-// Индексы для оптимизации
+// 🔴 ИНДЕКСЫ ДЛЯ ОПТИМИЗАЦИИ
 threadSchema.index({ board: 1, isPinned: -1, createdAt: -1 });
 threadSchema.index({ board: 1, lastPostAt: -1 });
+
+// 🔴 ТЕКСТОВЫЙ ИНДЕКС ДЛЯ ПОИСКА (НОВОЕ)
+threadSchema.index(
+  { 
+    title: 'text', 
+    content: 'text',
+    author: 'text'
+  },
+  {
+    name: 'thread_search_index',
+    weights: {
+      title: 10,    // Заголовок важнее
+      content: 5,   // Контент менее важен
+      author: 1,    // Автор наименее важен
+    },
+    default_language: 'russian',  // Для русской морфологии
+  }
+);
 
 const Thread = mongoose.model('Thread', threadSchema);
 

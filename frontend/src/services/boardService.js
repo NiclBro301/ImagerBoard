@@ -1,7 +1,7 @@
 import api from './api';
 
 export const boardService = {
-  getAll: () => api.get('/boards'),  // ← Возвращает весь response, не только data
+  getAll: () => api.get('/boards'), 
   
   getByCode: (code) => api.get(`/boards/code/${code}`),
   getById: (id) => api.get(`/boards/${id}`),

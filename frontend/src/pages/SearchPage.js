@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { searchService } from '../services/searchService';
 import { formatTextWithLineBreaks } from '../utils/textUtils';
+import Fuse from 'fuse.js';  // ← Импортируем Fuse.js
 import './SearchPage.css';
 
 const SearchPage = () => {
@@ -14,6 +15,21 @@ const SearchPage = () => {
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [searchStats, setSearchStats] = useState({ found: 0, total: 0 });
+
+  // 🔴 Настройки Fuse.js для дополнительного ранжирования на клиенте
+  const fuseOptions = {
+    keys: [
+      { name: 'title', weight: 0.7 },
+      { name: 'content', weight: 0.2 },
+      { name: 'author', weight: 0.1 },
+    ],
+    threshold: 0.4,        // 0 = точное, 1 = любое (0.4 = баланс)
+    distance: 100,         // Макс. расстояние для матчинга
+    minMatchCharLength: 2, // Мин. длина для матчинга
+    includeScore: true,    // Возвращать оценку релевантности
+    ignoreLocation: true,  // Игнорировать позицию совпадения
+  };
 
   useEffect(() => {
     const q = searchParams.get('q');
@@ -38,9 +54,41 @@ const SearchPage = () => {
         limit: 20,
       });
       
+      // 🔴 ДОПОЛНИТЕЛЬНОЕ РАНЖИРОВАНИЕ ЧЕРЕЗ FUSE.JS
+      if (response.data.isFuzzy && response.data.results) {
+        const allThreads = response.data.results.flatMap(group => group.threads);
+        
+        if (allThreads.length > 0) {
+          const fuse = new Fuse(allThreads, fuseOptions);
+          const fuseResults = fuse.search(searchQuery);
+          
+          // Пересобираем результаты в том же формате, но отсортированные по релевантности
+          const rankedThreads = fuseResults.map(r => r.item);
+          
+          // Группируем заново
+          const groupedByBoard = rankedThreads.reduce((acc, thread) => {
+            const boardCode = thread.board?.code || 'unknown';
+            if (!acc[boardCode]) {
+              acc[boardCode] = {
+                board: thread.board,
+                threads: [],
+              };
+            }
+            acc[boardCode].threads.push(thread);
+            return acc;
+          }, {});
+          
+          response.data.results = Object.values(groupedByBoard);
+        }
+      }
+      
       setResults(response.data.results || []);
       setTotalPages(response.data.pages || 1);
       setPage(response.data.page || 1);
+      setSearchStats({
+        found: response.data.count || 0,
+        total: response.data.total || 0,
+      });
     } catch (err) {
       console.error('Search error:', err);
       setError(err.response?.data?.message || 'Ошибка при поиске');
@@ -55,6 +103,13 @@ const SearchPage = () => {
     }
   };
 
+  // 🔴 Подсветка совпадений в результатах
+  const highlightMatch = (text, searchTerm) => {
+    if (!text || !searchTerm) return text;
+    const regex = new RegExp(`(${searchTerm})`, 'gi');
+    return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+  };
+
   return (
     <div className="search-page">
       <div className="search-header">
@@ -62,7 +117,6 @@ const SearchPage = () => {
         {query && <span className="search-query">по запросу: "{query}"</span>}
       </div>
 
-      {/* Результаты */}
       <div className="search-results">
         {loading && <div className="loader"></div>}
         
@@ -76,7 +130,12 @@ const SearchPage = () => {
           <div className="empty-state">
             <div className="empty-icon">🔍</div>
             <h3>Ничего не найдено</h3>
-            <p>Попробуйте изменить запрос или использовать другие ключевые слова</p>
+            <p>Попробуйте:</p>
+            <ul className="search-tips">
+              <li>Использовать другие ключевые слова</li>
+              <li>Проверить опечатки (поиск нечёткий, но не всесильный)</li>
+              <li>Расширить запрос (например, "питон" вместо "python программирование")</li>
+            </ul>
             <Link to="/" className="btn btn-primary">Вернуться на главную</Link>
           </div>
         )}
@@ -84,7 +143,9 @@ const SearchPage = () => {
         {!loading && !error && results.length > 0 && (
           <>
             <div className="search-summary">
-              Найдено тредов: <strong>{results.reduce((sum, group) => sum + group.threads.length, 0)}</strong>
+              Найдено: <strong>{searchStats.found}</strong> из {searchStats.total} тредов
+              {query && <span> • Запрос: "{query}"</span>}
+              <span className="fuzzy-badge" title="Нечёткий поиск">🎯 Fuzzy</span>
             </div>
 
             {results.map((group) => (
@@ -105,19 +166,37 @@ const SearchPage = () => {
                     >
                       <div className="thread-result-header">
                         {thread.isPinned && <span className="pin-icon" title="Закреплён">📌</span>}
-                        <h4 className="thread-title">{thread.title}</h4>
+                        <h4 
+                          className="thread-title"
+                          dangerouslySetInnerHTML={{ 
+                            __html: highlightMatch(thread.title, query) 
+                          }} 
+                        />
+                        {thread._score && (
+                          <span className="relevance-score" title="Релевантность">
+                            {Math.round(thread._score)}%
+                          </span>
+                        )}
                       </div>
                       
-                      <div className="thread-preview">
-                        {formatTextWithLineBreaks(thread.content).substring(0, 200)}
-                        {thread.content?.length > 200 ? '...' : ''}
-                      </div>
+                      <div 
+                        className="thread-preview"
+                        dangerouslySetInnerHTML={{ 
+                          __html: highlightMatch(
+                            formatTextWithLineBreaks(thread.content).substring(0, 200) + 
+                            (thread.content?.length > 200 ? '...' : ''),
+                            query
+                          ) 
+                        }} 
+                      />
                       
                       <div className="thread-meta">
-                        <span className="thread-author">👤 {thread.author}</span>
+                        <span className="thread-author">
+                          👤 <span dangerouslySetInnerHTML={{ __html: highlightMatch(thread.author, query) }} />
+                        </span>
                         <span className="thread-stats">💬 {thread.postCount} ответов</span>
                         <span className="thread-date">
-                          {new Date(thread.lastActivity || thread.createdAt).toLocaleString('ru-RU')}
+                          {new Date(thread.lastPostAt || thread.createdAt).toLocaleString('ru-RU')}
                         </span>
                       </div>
                     </Link>

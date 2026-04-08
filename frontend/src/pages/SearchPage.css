@@ -255,3 +255,69 @@
     gap: 10px;
   }
 }
+
+/* 🔴 Подсветка совпадений в поиске */
+.search-highlight {
+  background: linear-gradient(135deg, #ffeb3b 0%, #ffc107 100%);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #333;
+}
+
+/* 🔴 Бейдж нечёткого поиска */
+.fuzzy-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  margin-left: 10px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 🔴 Оценка релевантности */
+.relevance-score {
+  background: #e7f3ff;
+  color: #667eea;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: auto;
+}
+
+/* 🔴 Советы по поиску */
+.search-tips {
+  text-align: left;
+  margin: 15px 0 25px;
+  padding: 15px 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.search-tips li {
+  margin: 5px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Адаптив для подсветки */
+@media (max-width: 768px) {
+  .relevance-score {
+    display: none;  /* Скрываем на мобильных для экономии места */
+  }
+  
+  .fuzzy-badge {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+  }
+}

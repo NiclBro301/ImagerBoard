@@ -1,55 +1,57 @@
+// backend/src/controllers/reportController.js
 const Report = require('../models/Report');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Ban = require('../models/Ban');
 
-// 🔴 НОВАЯ функция: Извлекает оригинальный текст из поста (без цитат)
+// 🔴 Безопасная функция: Извлекает оригинальный текст из поста
 const extractOriginalText = (content) => {
-  if (!content) return '';
-  
-  // Очищаем от HTML тегов
-  let cleanContent = content
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
-  
-  const lines = cleanContent.split('\n');
-  const originalLines = [];
-  
-  // Берём только строки, которые НЕ являются цитатами
-  for (let line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('>')) {
-      originalLines.push(trimmed);
+  try {
+    if (!content || typeof content !== 'string') return 'Пост удалён';
+    
+    let cleanContent = content
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+    
+    const lines = cleanContent.split('\n');
+    const originalLines = [];
+    
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('>')) {
+        originalLines.push(trimmed);
+      }
     }
-  }
-  
-  // Если есть оригинальный текст — возвращаем его
-  if (originalLines.length > 0) {
-    return originalLines.join(' ').trim();
-  }
-  
-  // Если нет оригинального текста, берём последнюю цитату
-  const quoteLines = [];
-  for (let line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('>')) {
-      quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+    
+    if (originalLines.length > 0) {
+      return originalLines.join(' ').trim();
     }
+    
+    const quoteLines = [];
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+      }
+    }
+    
+    if (quoteLines.length > 0) {
+      return quoteLines[quoteLines.length - 1];
+    }
+    
+    return cleanContent.trim();
+  } catch (e) {
+    console.warn('⚠️ extractOriginalText error:', e.message);
+    return 'Ошибка обработки текста';
   }
-  
-  if (quoteLines.length > 0) {
-    return quoteLines[quoteLines.length - 1];
-  }
-  
-  return cleanContent.trim();
 };
 
-// @desc    Создать жалобу на пост
+// @desc    Создать жалобу на пост + Socket.io эмиссия
 // @route   POST /api/reports
-// @access  Private (требуется авторизация)
+// @access  Private
 const createReport = async (req, res) => {
   try {
     const { postId, reason, description } = req.body;
@@ -61,7 +63,6 @@ const createReport = async (req, res) => {
       });
     }
 
-    // Проверка, что пост существует
     const post = await Post.findById(postId);
     if (!post || post.isDeleted) {
       return res.status(404).json({
@@ -70,7 +71,6 @@ const createReport = async (req, res) => {
       });
     }
 
-    // Проверка, что пользователь не жалуется на свой пост
     if (post.user && post.user.toString() === req.user._id.toString()) {
       return res.status(400).json({
         success: false,
@@ -78,7 +78,6 @@ const createReport = async (req, res) => {
       });
     }
 
-    // Проверка, что пользователь ещё не жаловался на этот пост
     const existingReport = await Report.findOne({
       post: postId,
       reportedBy: req.user._id,
@@ -92,7 +91,6 @@ const createReport = async (req, res) => {
       });
     }
 
-    // Создаём жалобу
     const report = await Report.create({
       post: postId,
       reportedBy: req.user._id,
@@ -101,16 +99,41 @@ const createReport = async (req, res) => {
       status: 'pending',
     });
 
+    // 🔴 Socket.io: Эмиссия новой жалобы для админов
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      if (io) {
+        const payload = {
+          report: {
+            _id: report._id,
+            reason: report.reason,
+            description: report.description,
+            status: report.status,
+            createdAt: report.createdAt,
+            post: { _id: report.post, author: post?.author || 'Аноним' },
+            reportedBy: report.reportedBy,
+          },
+        };
+        
+        console.log('📡 Emitting new-report to admins:', payload.report._id);
+        io.to('admins').emit('new-report', payload);
+      }
+    } catch (emitError) {
+      console.warn('⚠️ Failed to emit new-report:', emitError?.message || emitError);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Жалоба успешно создана',
       report,
     });
   } catch (error) {
+    console.error('❌ Error creating report:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при создании жалобы',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -132,8 +155,7 @@ const getReportById = async (req, res) => {
       });
     }
 
-    // 🔴 Добавляем оригинальный текст поста
-    const originalText = report.post ? extractOriginalText(report.post.content) : 'Пост удалён';
+    const originalText = report.post?.content ? extractOriginalText(report.post.content) : 'Пост удалён';
 
     res.status(200).json({
       success: true,
@@ -143,10 +165,11 @@ const getReportById = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ Error getting report:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при получении жалобы',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -174,9 +197,16 @@ const getReports = async (req, res) => {
 
     const count = await Report.countDocuments(query);
 
-    // 🔴 ДОБАВЛЯЕМ оригинальный текст к каждой жалобе
+    // 🔴 Безопасная обработка: extractOriginalText с проверкой на null
     const reportsWithOriginalText = reports.map(report => {
-      const originalText = report.post ? extractOriginalText(report.post.content) : 'Пост удалён';
+      let originalText = 'Пост удалён';
+      if (report.post?.content) {
+        try {
+          originalText = extractOriginalText(report.post.content);
+        } catch (e) {
+          console.warn('⚠️ Failed to extract text:', e.message);
+        }
+      }
       return {
         ...report,
         originalPostText: originalText,
@@ -192,10 +222,12 @@ const getReports = async (req, res) => {
       reports: reportsWithOriginalText,
     });
   } catch (error) {
+    console.error('❌ Error getting reports:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при получении жалоб',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };
@@ -220,10 +252,11 @@ const getReportStats = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ Error getting report stats:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при получении статистики',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -260,7 +293,7 @@ const processWithBan = async (req, res) => {
     }
 
     // Банним автора поста
-    if (report.post && report.post.user) {
+    if (report.post?.user) {
       const userToBan = await User.findById(report.post.user);
       
       if (userToBan) {
@@ -269,12 +302,11 @@ const processWithBan = async (req, res) => {
         if (banDuration && banDuration > 0) {
           userToBan.bannedUntil = new Date(Date.now() + parseInt(banDuration));
         } else {
-          userToBan.bannedUntil = null; // Перманентный бан
+          userToBan.bannedUntil = null;
         }
 
         await userToBan.save();
 
-        // Создаём запись о бане
         await Ban.create({
           user: userToBan._id,
           bannedBy: req.user._id,
@@ -289,16 +321,33 @@ const processWithBan = async (req, res) => {
     report.resolvedBy = req.user._id;
     await report.save();
 
+    // 🔴 Socket.io: Эмиссия обновления жалобы
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      if (io) {
+        io.to('admins').emit('report-updated', {
+          reportId: report._id,
+          status: report.status,
+          resolvedBy: req.user?.username || 'Admin',
+        });
+      }
+    } catch (emitError) {
+      console.warn('⚠️ Failed to emit report-updated:', emitError?.message || emitError);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Жалоба одобрена, пользователь забанен',
       report,
     });
   } catch (error) {
+    console.error('❌ Error processing report:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при обработке жалобы',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };
@@ -328,16 +377,33 @@ const rejectReport = async (req, res) => {
     report.resolvedBy = req.user._id;
     await report.save();
 
+    // 🔴 Socket.io: Эмиссия обновления жалобы
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      if (io) {
+        io.to('admins').emit('report-updated', {
+          reportId: report._id,
+          status: report.status,
+          resolvedBy: req.user?.username || 'Admin',
+        });
+      }
+    } catch (emitError) {
+      console.warn('⚠️ Failed to emit report-updated:', emitError?.message || emitError);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Жалоба отклонена',
       report,
     });
   } catch (error) {
+    console.error('❌ Error rejecting report:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при отклонении жалобы',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };
@@ -361,20 +427,22 @@ const deleteReport = async (req, res) => {
       message: 'Жалоба удалена',
     });
   } catch (error) {
+    console.error('❌ Error deleting report:', error);
     res.status(500).json({
       success: false,
       message: 'Ошибка при удалении жалобы',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };
 
 module.exports = {
-  createReport,      // ← Для POST /reports
-  getReportById,     // ← Для GET /reports/:id
-  getReports,        // ← Для GET /reports
-  getReportStats,    // ← Для GET /reports/stats
-  processWithBan,    // ← Для PATCH /reports/:id/ban
-  rejectReport,      // ← Для PATCH /reports/:id/reject
-  deleteReport,      // ← Для DELETE /reports/:id
+  createReport,
+  getReportById,
+  getReports,
+  getReportStats,
+  processWithBan,
+  rejectReport,
+  deleteReport,
 };

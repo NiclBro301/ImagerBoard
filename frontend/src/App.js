@@ -3,10 +3,11 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate } f
 import { useSelector, useDispatch } from 'react-redux';
 import { setCredentials, logout } from './store/authSlice';
 import { fetchBoards } from './store/boardsSlice';
-import { ToastContainer } from 'react-toastify';
+import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import api from './services/api';
 import { authService } from './services/authService';
+import { socketService } from './services/socketService';
 
 import HomePage from './pages/HomePage';
 import BoardPage from './pages/BoardPage';
@@ -94,7 +95,9 @@ const Navbar = ({ isAuthenticated, user, onLogout, unreadCount }) => {
         
         {isAuthenticated ? (
           <>
-            <span className="nav-username">👋 {user?.username || 'Пользователь'}</span>
+<span className="nav-username" style={{ cursor: 'default' }}>
+  👋 {user?.username || 'Пользователь'}
+</span>
             <button onClick={onLogout} className="btn btn-outline">Выйти</button>
           </>
         ) : (
@@ -179,11 +182,122 @@ function App() {
     restoreSession();
   }, [dispatch, token, isAuthenticated, user]);
 
+  // 🔴 ПОДКЛЮЧЕНИЕ К SOCKET.IO (исправленный useEffect)
+  useEffect(() => {
+    if (!isAuthenticated || !token || !user?._id) {
+      return;
+    }
+    
+    console.log('🔌 App: Connecting to socket...');
+    
+    // 🔴 Подключаемся к сокету с передачей роли
+    socketService.connect(token, user._id, user.role);
+    
+    // 🔹 Слушаем новые уведомления (глобально)
+    const handleNotification = (data) => {
+      console.log('📥 App: Got notification', data);
+      
+      // 🔴 Обновляем счётчик мгновенно
+      setUnreadCount(prev => prev + 1);
+      
+      // 🔴 Показываем toast с кликом для перехода в профиль
+      toast.info(`🔔 ${data.title}`, {
+        position: 'top-right',
+        autoClose: 5000,
+        onClick: () => {
+          // Переход в профиль с открытием вкладки уведомлений
+          window.location.href = '/profile?tab=notifications';
+        },
+      });
+      
+      // 🔴 Если открыт профиль — отправляем событие для обновления списка
+      if (window.location.pathname === '/profile') {
+        window.dispatchEvent(new CustomEvent('profile-notifications-refresh'));
+      }
+    };
+    
+    socketService.on('notification', handleNotification);
+    
+    // 🔹 Слушаем новые жалобы (для админов/модераторов)
+    let handleNewReport = null;
+    if (user?.role === 'admin' || user?.role === 'moderator') {
+      handleNewReport = (data) => {
+        console.log('📥 App: Got new-report EVENT', data);
+        
+        // 🔴 Обновляем счётчик уведомлений
+        setUnreadCount(prev => prev + 1);
+        
+        toast.warning(`⚠️ Новая жалоба: ${data.report?.reason || 'неизвестно'}`, {
+          position: 'top-right',
+          autoClose: 6000,
+          onClick: () => {
+            if (window.location.pathname === '/admin') {
+              window.dispatchEvent(new CustomEvent('admin-reports-refresh'));
+            } else {
+              window.location.href = '/admin?tab=reports&refresh=1';
+            }
+          },
+        });
+      };
+      socketService.on('new-report', handleNewReport);
+      
+      socketService.on('report-updated', (data) => {
+        console.log('📥 App: Got report-updated', data);
+        toast.info(`📋 Жалоба обновлена: ${data.status}`, {
+          position: 'top-right',
+          autoClose: 3000,
+        });
+        if (window.location.pathname === '/admin') {
+          window.dispatchEvent(new CustomEvent('admin-reports-refresh'));
+        }
+      });
+    }
+    
+    // 🔹 Очистка ТОЛЬКО при разлогине или смене пользователя
+    return () => {
+      console.log('🧹 App: Removing socket listeners');
+      socketService.off('notification', handleNotification);
+      if (handleNewReport) {
+        socketService.off('new-report', handleNewReport);
+        socketService.off('report-updated');
+      }
+    };
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, token, user?._id, user?.role]);
+
+  // 🔴 Слушаем событие уменьшения счётчика уведомлений
+useEffect(() => {
+  const handleDecrement = () => {
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+  
+  window.addEventListener('unread-count-decrement', handleDecrement);
+  
+  return () => {
+    window.removeEventListener('unread-count-decrement', handleDecrement);
+  };
+}, []);
+
+// 🔴 Слушаем событие сброса счётчика уведомлений
+useEffect(() => {
+  const handleReset = () => {
+    setUnreadCount(0);
+  };
+  
+  window.addEventListener('unread-count-reset', handleReset);
+  
+  return () => {
+    window.removeEventListener('unread-count-reset', handleReset);
+  };
+}, []);
+
   const handleLogout = () => {
     dispatch(logout());
     setIsBanned(false);
     setBanInfo(null);
     setUnreadCount(0);
+    socketService.disconnect();  // 🔴 Отключаем сокет при выходе
   };
 
   if (!sessionRestored) {

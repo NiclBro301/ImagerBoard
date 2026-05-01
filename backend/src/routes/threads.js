@@ -13,13 +13,13 @@ const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 
 // 🔴 Роуты для тредов внутри борда
-// Полный путь: /boards/:code/threads
+// При монтаже в index.js как /boards → становится /api/boards/:code/threads
 router.route('/:code/threads')
   .get(getThreads)
   .post(protect, upload.single('image'), createThread);
 
 // 🔴 Роуты для конкретного треда по ID
-// Полный путь: /boards/thread/:id
+// При монтаже в index.js как /boards → становится /api/boards/thread/:id
 router.route('/thread/:id')
   .get(getThreadById)
   .put(protect, authorize('admin', 'moderator'), updateThread)

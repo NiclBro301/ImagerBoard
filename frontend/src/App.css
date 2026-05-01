@@ -93,17 +93,18 @@
   color: #007bff;
 }
 
-/* Имя пользователя - курсор как на кнопку */
+/* 🔴 ИМЯ ПОЛЬЗОВАТЕЛЯ — без hover-эффектов */
 .nav-username {
-  font-weight: 500;
   color: #333;
-  cursor: pointer;
+  font-weight: 500;
+  padding: 8px 12px;
+  cursor: default !important; /* ← Важно: не кнопка */
   user-select: none;
-  transition: color 0.3s;
 }
 
 .nav-username:hover {
-  color: #007bff;
+  background: transparent !important; /* ← Убираем фон при наведении */
+  color: #333 !important;
 }
 
 /* Кнопка регистрации - убрать подчеркивание */

@@ -1,52 +1,53 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const userSchema = new mongoose.Schema(
-  {
-    username: {
-      type: String,
-      required: [true, 'Имя пользователя обязательно'],
-      unique: true,
-      trim: true,
-      minlength: [3, 'Имя должно быть не короче 3 символов'],
-      maxlength: [30, 'Имя не может быть длиннее 30 символов'],
-    },
-    email: {
-      type: String,
-      required: [true, 'Email обязателен'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Неверный формат email'],
-    },
-    password: {
-      type: String,
-      required: [true, 'Пароль обязателен'],
-      minlength: [6, 'Пароль должен быть не короче 6 символов'],
-      select: false, // Не возвращаем пароль по умолчанию
-    },
-    role: {
-      type: String,
-      enum: ['user', 'moderator', 'admin'],
-      default: 'user',
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    lastLogin: {
-      type: Date,
-      default: null,
-    },
-    bannedUntil: {
-      type: Date,
-      default: null,
-    },
+const userSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: [true, 'Имя пользователя обязательно'],
+    unique: true,
+    trim: true,
+    minlength: [3, 'Имя должно быть не менее 3 символов'],
+    maxlength: [30, 'Имя не может быть длиннее 30 символов'],
   },
-  {
-    timestamps: true,
-  }
-);
+  email: {
+    type: String,
+    required: [true, 'Email обязателен'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Пожалуйста, введите корректный email'],
+  },
+  password: {
+    type: String,
+    required: [true, 'Пароль обязателен'],
+    minlength: [6, 'Пароль должен быть не менее 6 символов'],
+    select: false,
+  },
+  role: {
+    type: String,
+    enum: ['user', 'moderator', 'admin'],
+    default: 'user',
+  },
+  avatar: {
+    type: String,
+    default: null,
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  bannedUntil: {
+    type: Date,
+    default: null,
+  },
+  lastLogin: {
+    type: Date,
+    default: Date.now,
+  },
+}, {
+  timestamps: true,
+});
 
 // Middleware для хеширования пароля перед сохранением
 userSchema.pre('save', async function (next) {

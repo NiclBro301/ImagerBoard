@@ -1,355 +1,522 @@
-import React, { useEffect, useState } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { logout } from '../store/authSlice';
-import { authService } from '../services/authService';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
+import { authService } from '../services/authService';
+import { formatTextWithLineBreaks } from '../utils/textUtils';
+import { socketService } from '../services/socketService';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const { user, token, isAuthenticated } = useSelector((state) => state.auth);
+  const { user, token } = useSelector((state) => state.auth);
   
+  // 🔴 Состояния
   const [userData, setUserData] = useState(null);
   const [stats, setStats] = useState({
-    threadsCount: 0,
-    postsCount: 0,
+    posts: 0,
+    threads: 0,
     likesReceived: 0,
-    unreadNotifications: 0,
+    reportsReceived: 0,
+    reportsSubmitted: 0,
   });
   const [notifications, setNotifications] = useState([]);
+  
+  // 🔴 Состояния загрузки
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('info');
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+  
+  // 🔴 Состояния для аватара
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    fetchUserData();
-    fetchStats();
-    fetchNotifications();
-  }, [token, isAuthenticated, navigate]);
-
+  // Загрузка данных пользователя
   const fetchUserData = async () => {
     try {
-      const response = await authService.getCurrentUser();
+      setLoading(true);
+      const response = await authService.getMe();
       setUserData(response.data.user);
+      if (response.data.user.avatar) {
+        setAvatarPreview(`http://localhost:5000${response.data.user.avatar}`);
+      }
     } catch (error) {
       console.error('Ошибка получения данных пользователя:', error);
-      if (error.response?.status === 401) {
-        dispatch(logout());
-        navigate('/login');
-      }
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const response = await authService.getUserStats();
-      setStats(response.data.stats);
-    } catch (error) {
-      console.error('Ошибка получения статистики:', error);
-    }
-  };
-
-  const fetchNotifications = async () => {
-    try {
-      const response = await authService.getNotifications();
-      setNotifications(response.data.notifications || []);
-    } catch (error) {
-      console.error('Ошибка получения уведомлений:', error);
+      toast.error('Не удалось загрузить профиль', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  // Пометка уведомления как прочитанное
+  // Загрузка статистики пользователя
+  const fetchStats = async () => {
+    try {
+      setLoadingStats(true);
+      const response = await authService.getStats();
+      setStats(response.data.stats || {});
+    } catch (error) {
+      console.error('Ошибка получения статистики:', error);
+      setStats({
+        posts: 0,
+        threads: 0,
+        likesReceived: 0,
+        reportsReceived: 0,
+        reportsSubmitted: 0,
+      });
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  // Загрузка уведомлений
+  const fetchNotifications = async () => {
+    try {
+      setLoadingNotifications(true);
+      const response = await authService.getNotifications({ limit: 10 });
+      setNotifications(response.data.notifications || []);
+    } catch (error) {
+      console.error('Ошибка получения уведомлений:', error);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  // 🔴 Загрузка всех данных при монтировании
+  useEffect(() => {
+    if (token && user?._id) {
+      fetchUserData();
+      fetchStats();
+      fetchNotifications();
+    }
+  }, [token, user?._id]);
+
+  // 🔴 SOCKET.IO: Автообновление списка уведомлений
+  useEffect(() => {
+    if (!token) return;
+    
+    console.log('🔌 ProfilePage: Подписка на уведомления');
+    
+    const handleNewNotification = (data) => {
+      console.log('📥 ProfilePage: Новое уведомление', data);
+      
+      setNotifications(prev => {
+        const exists = prev.some(n => n._id === data._id);
+        if (exists) return prev;
+        return [data, ...prev];
+      });
+    };
+    
+    socketService.on('notification', handleNewNotification);
+    
+    const handleCustomRefresh = () => {
+      console.log('🔄 ProfilePage: Custom refresh event received');
+      fetchNotifications();
+    };
+    window.addEventListener('profile-notifications-refresh', handleCustomRefresh);
+    
+    return () => {
+      console.log('🔌 ProfilePage: Отписка от уведомлений');
+      socketService.off('notification', handleNewNotification);
+      window.removeEventListener('profile-notifications-refresh', handleCustomRefresh);
+    };
+  }, [token]);
+
+  // 🔴 Обработка выбора файла аватара
+  const handleAvatarChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // 🔴 Проверка типа файла
+    if (!file.type.startsWith('image/')) {
+      toast.error('Пожалуйста, выберите изображение', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+      return;
+    }
+    
+    // 🔴 Проверка размера (макс 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Файл слишком большой (макс 5MB)', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+      return;
+    }
+    
+    setAvatarFile(file);
+    
+    // 🔴 Предпросмотр
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setAvatarPreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 🔴 Загрузка аватара
+  const handleUploadAvatar = async () => {
+    if (!avatarFile) {
+      toast.error('Выберите файл для загрузки', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+      return;
+    }
+    
+    try {
+      setUploadingAvatar(true);
+      const formData = new FormData();
+      formData.append('avatar', avatarFile);
+      
+      await authService.uploadAvatar(formData);
+      
+      // 🔴 Обновляем данные пользователя
+      await fetchUserData();
+      
+      toast.success('✅ Аватар загружен!', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+      
+      // 🔴 Очищаем
+      setAvatarFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      toast.error(error.response?.data?.message || '❌ Ошибка при загрузке аватара', {
+        position: 'top-right',
+        autoClose: 4000,
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  // 🔴 Удаление аватара
+  const handleDeleteAvatar = async () => {
+    const confirmed = window.confirm('Вы уверены, что хотите удалить аватар?');
+    if (!confirmed) return;
+    
+    try {
+      await authService.deleteAvatar();
+      await fetchUserData();
+      setAvatarPreview(null);
+      
+      toast.success('✅ Аватар удалён!', {
+        position: 'top-right',
+        autoClose: 3000,
+      });
+    } catch (error) {
+      console.error('Error deleting avatar:', error);
+      toast.error('❌ Ошибка при удалении аватара', {
+        position: 'top-right',
+        autoClose: 4000,
+      });
+    }
+  };
+
+  // 🔴 Обработка отметки уведомления как прочитанного
   const handleMarkAsRead = async (notificationId) => {
     try {
       await authService.markNotificationAsRead(notificationId);
-      
       setNotifications(prev => 
-        prev.map(notif => 
-          notif._id === notificationId ? { ...notif, isRead: true } : notif
-        )
+        prev.map(n => n._id === notificationId ? { ...n, isRead: true } : n)
       );
-      
-      setStats(prev => ({
-        ...prev,
-        unreadNotifications: Math.max(0, (prev.unreadNotifications || 0) - 1)
-      }));
     } catch (error) {
-      console.error('Ошибка при пометке уведомления:', error);
+      console.error('Ошибка при отметке уведомления:', error);
     }
   };
 
-  // 🔴 УДАЛЕНИЕ УВЕДОМЛЕНИЯ — БЕЗ ПОДТВЕРЖДЕНИЯ
-  const handleDeleteNotification = async (notificationId, e) => {
-    e.stopPropagation();  // Чтобы не сработал onClick родителя
-    
+  // 🔴 Обработка удаления уведомления
+  const handleDeleteNotification = async (notificationId) => {
     try {
-      await authService.deleteNotification(notificationId);
-      
-      // Удаляем из локального состояния
-      setNotifications(prev => prev.filter(notif => notif._id !== notificationId));
-      
-      // Обновляем счётчик если уведомление было непрочитанным
       const notif = notifications.find(n => n._id === notificationId);
+      
       if (notif && !notif.isRead) {
-        setStats(prev => ({
-          ...prev,
-          unreadNotifications: Math.max(0, (prev.unreadNotifications || 0) - 1)
-        }));
+        await authService.markNotificationAsRead(notificationId);
       }
       
-      toast.success('✅ Уведомление удалено');
+      await authService.deleteNotification(notificationId);
+      setNotifications(prev => prev.filter(n => n._id !== notificationId));
+      
+      if (notif && !notif.isRead) {
+        window.dispatchEvent(new CustomEvent('unread-count-decrement'));
+      }
     } catch (error) {
-      toast.error('❌ Ошибка при удалении уведомления');
-      console.error('Error deleting notification:', error);
+      console.error('Ошибка при удалении уведомления:', error);
     }
   };
 
-  const handleMarkAllAsRead = async () => {
-    try {
-      await authService.markAllNotificationsAsRead();
-      
-      setNotifications(prev => prev.map(notif => ({ ...notif, isRead: true })));
-      setStats(prev => ({ ...prev, unreadNotifications: 0 }));
-      
-      toast.success('✅ Все уведомления прочитаны');
-    } catch (error) {
-      toast.error('❌ Ошибка при обновлении уведомлений');
+  // 🔴 Удаление всех уведомлений
+const handleDeleteAllNotifications = async () => {
+  try {
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    
+    await authService.deleteAllNotifications();
+    setNotifications([]);
+    
+    // 🔴 Обновляем счётчик в App.js
+    if (unreadCount > 0) {
+      window.dispatchEvent(new CustomEvent('unread-count-reset'));
     }
+    
+    toast.success('✅ Все уведомления удалены!', {
+      position: 'top-right',
+      autoClose: 2000,
+    });
+  } catch (error) {
+    console.error('Ошибка при удалении всех уведомлений:', error);
+    toast.error('❌ Ошибка при удалении уведомлений', {
+      position: 'top-right',
+      autoClose: 3000,
+    });
+  }
+};
+
+  // 🔴 Форматирование даты
+  const formatDate = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
-  const handleLogout = () => {
-    dispatch(logout());
-    navigate('/');
-  };
-
+  // 🔴 Пока загружаются данные
   if (loading) {
     return (
-      <div className="profile-container">
-        <div className="loader"></div>
+      <div className="profile-page">
+        <div className="loader-container">
+          <div className="loader"></div>
+          <p>Загрузка профиля...</p>
+        </div>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
-  const getRoleName = (role) => {
-    switch(role) {
-      case 'admin': return 'Администратор';
-      case 'moderator': return 'Модератор';
-      case 'user': return 'Пользователь';
-      default: return 'Пользователь';
-    }
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('ru-RU', {
-      year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-  };
-
-  const getNotificationIcon = (type) => {
-    switch(type) {
-      case 'like': return '👍';
-      case 'reply': return '💬';
-      case 'quote': return '📝';
-      case 'mention': return '@';
-      case 'report_resolved': return '✅';
-      default: return '🔔';
-    }
-  };
-
-  const getNotificationLink = (notification) => {
-    if (notification.thread && typeof notification.thread === 'object') {
-      return `/thread/${notification.thread._id}`;
-    }
-    if (notification.thread && typeof notification.thread === 'string') {
-      return `/thread/${notification.thread}`;
-    }
-    return '#';
-  };
-
   return (
-    <div className="profile-container">
-      <div className="profile-card">
-        <div className="profile-header">
-          <h2>👤 Личный кабинет</h2>
-          <div className="profile-badge">
-            {userData?.role === 'admin' && <span className="badge badge-admin">Администратор</span>}
-            {userData?.role === 'moderator' && <span className="badge badge-moderator">Модератор</span>}
+    <div className="profile-page">
+      <div className="profile-header">
+        <h1>👤 Профиль пользователя</h1>
+        
+        {/* 🔴 СЕКЦИЯ АВАТАРА */}
+        <div className="avatar-section">
+          <div className="avatar-preview">
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="Аватар" className="avatar-image" />
+            ) : (
+              <div className="avatar-placeholder">
+                {userData?.username?.charAt(0).toUpperCase()}
+              </div>
+            )}
           </div>
+          
+          <div className="avatar-controls">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleAvatarChange}
+              accept="image/*"
+              className="avatar-input"
+              id="avatar-upload"
+            />
+            <label htmlFor="avatar-upload" className="btn btn-outline">
+              📷 Выбрать фото
+            </label>
+            
+            {avatarFile && (
+              <>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleUploadAvatar}
+                  disabled={uploadingAvatar}
+                >
+                  {uploadingAvatar ? '⏳ Загрузка...' : '✅ Загрузить'}
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setAvatarFile(null);
+                    setAvatarPreview(userData?.avatar ? `http://localhost:5000${userData.avatar}` : null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                >
+                  ✕ Отмена
+                </button>
+              </>
+            )}
+            
+            {userData?.avatar && !avatarFile && (
+              <button className="btn btn-danger" onClick={handleDeleteAvatar}>
+                🗑️ Удалить
+              </button>
+            )}
+          </div>
+          
+          <small className="avatar-hint">
+            💡 Максимум 5MB, рекомендуется квадратное изображение
+          </small>
         </div>
         
-        {/* Вкладки профиля */}
-        <div className="profile-tabs">
-          <button 
-            className={`tab-btn ${activeTab === 'info' ? 'active' : ''}`}
-            onClick={() => setActiveTab('info')}
-          >
-            📋 Информация
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'notifications' ? 'active' : ''}`}
-            onClick={() => setActiveTab('notifications')}
-          >
-            🔔 Уведомления
-            {stats.unreadNotifications > 0 && (
-              <span className="tab-badge">{stats.unreadNotifications}</span>
-            )}
-          </button>
+        <div className="user-details">
+          <h2>{userData?.username || 'Пользователь'}</h2>
+          <p className="user-email">{userData?.email}</p>
+          <p className="user-role">
+            Роль: <strong>
+              {userData?.role === 'admin' ? '👑 Администратор' : 
+               userData?.role === 'moderator' ? '🛡️ Модератор' : '👤 Пользователь'}
+            </strong>
+          </p>
+          <p className="user-status">
+            Статус: <strong className={userData?.isActive ? 'status-active' : 'status-banned'}>
+              {userData?.isActive ? '✅ Активен' : '🔒 Забанен'}
+            </strong>
+          </p>
         </div>
+      </div>
 
-        <div className="profile-content">
-          {activeTab === 'info' && (
-            <>
-              <div className="info-section">
-                <h4>Основная информация</h4>
-                <div className="info-grid">
-                  <div className="info-item">
-                    <span className="info-label">Имя пользователя:</span>
-                    <span className="info-value">{userData?.username || user.username}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Email:</span>
-                    <span className="info-value">{userData?.email || user.email}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Роль:</span>
-                    <span className="info-value">{getRoleName(userData?.role || user.role)}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Дата регистрации:</span>
-                    <span className="info-value">{formatDate(userData?.createdAt || user.createdAt)}</span>
-                  </div>
-                  {userData?.lastLogin && (
-                    <div className="info-item">
-                      <span className="info-label">Последний вход:</span>
-                      <span className="info-value">{formatDate(userData.lastLogin)}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
+      {/* 🔴 СТАТИСТИКА ПОЛЬЗОВАТЕЛЯ */}
+      <div className="stats-section">
+        <h3>📊 Статистика</h3>
+        {loadingStats ? (
+          <div className="loader-small"></div>
+        ) : (
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-number">{stats.posts ?? 0}</div>
+              <div className="stat-label">Постов</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.threads ?? 0}</div>
+              <div className="stat-label">Тредов</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.likesReceived ?? 0}</div>
+              <div className="stat-label">Лайков получено</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.reportsReceived ?? 0}</div>
+              <div className="stat-label">Жалоб на вас</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.reportsSubmitted ?? 0}</div>
+              <div className="stat-label">Жалоб подано</div>
+            </div>
+          </div>
+        )}
+      </div>
 
-              {/* Статистика */}
-              <div className="info-section">
-                <h4>Статистика</h4>
-                <div className="stats-grid">
-                  <div className="stat-card">
-                    <div className="stat-value">{stats.threadsCount}</div>
-                    <div className="stat-label">Созданных тредов</div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-value">{stats.postsCount}</div>
-                    <div className="stat-label">Оставленных постов</div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-value">{stats.likesReceived}</div>
-                    <div className="stat-label">Полученных лайков</div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === 'notifications' && (
-            <div className="notifications-section">
-              <div className="notifications-header">
-                <h4>🔔 Уведомления</h4>
-                {notifications.length > 0 && (
-                  <button 
-                    className="btn btn-sm btn-outline"
-                    onClick={handleMarkAllAsRead}
-                  >
-                    ✅ Прочитать все
-                  </button>
-                )}
-              </div>
-
-              {notifications.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-icon">📭</div>
-                  <p>Нет новых уведомлений</p>
-                </div>
-              ) : (
-                <div className="notifications-list">
-                  {notifications.map((notif) => (
-                    <div 
-                      key={notif._id} 
-                      className={`notification-item ${!notif.isRead ? 'unread' : ''}`}
-                      onClick={() => !notif.isRead && handleMarkAsRead(notif._id)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <div className="notification-icon">
-                        {getNotificationIcon(notif.type)}
-                      </div>
-                      <div className="notification-content">
-                        <div className="notification-title">
-                          <strong>{notif.title}</strong>
-                          {!notif.isRead && <span className="badge-new">NEW</span>}
-                        </div>
-                        <p className="notification-message">{notif.message}</p>
-                        
-                        {notif.type === 'quote' && notif.quotePreview && (
-                          <div className="quote-preview">
-                            <div className="quote-block">
-                              <span className="quote-author">{notif.metadata?.author || 'Аноним'}</span>
-                              <p className="quote-text">{notif.quotePreview}...</p>
-                            </div>
-                          </div>
-                        )}
-                        
-                        <div className="notification-meta">
-                          <small>{formatDate(notif.createdAt)}</small>
-                          {notif.fromUser?.username && (
-                            <span>от @{notif.fromUser.username}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="notification-actions">
-                        {/* 🔴 КНОПКА УДАЛЕНИЯ — БЕЗ ПОДТВЕРЖДЕНИЯ */}
-                        <button 
-                          className="btn-icon btn-delete-notif"
-                          onClick={(e) => handleDeleteNotification(notif._id, e)}
-                          title="Удалить уведомление"
-                        >
-                          ✕
-                        </button>
-                        
-                        {/* Ссылка на тред */}
-                        {notif.thread && (
-                          <Link 
-                            to={getNotificationLink(notif)}
-                            className="btn-icon"
-                            title="Перейти к треду"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!notif.isRead) handleMarkAsRead(notif._id);
-                            }}
-                          >
-                            ↗
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+      {/* 🔴 ИНФОРМАЦИЯ ОБ АККАУНТЕ */}
+      <div className="account-info">
+        <h3>ℹ️ Информация об аккаунте</h3>
+        <div className="info-grid">
+          <div className="info-item">
+            <label>Дата регистрации:</label>
+            <span>{formatDate(userData?.createdAt)}</span>
+          </div>
+          <div className="info-item">
+            <label>Последний вход:</label>
+            <span>{formatDate(userData?.lastLogin)}</span>
+          </div>
+          {userData?.bannedUntil && (
+            <div className="info-item">
+              <label>Бан до:</label>
+              <span className="text-danger">
+                {userData.bannedUntil === null 
+                  ? '∞ Перманентно' 
+                  : formatDate(userData.bannedUntil)}
+              </span>
             </div>
           )}
         </div>
+      </div>
 
-        <div className="profile-actions">
-          <Link to="/" className="btn btn-outline">← Вернуться на главную</Link>
-          <button onClick={handleLogout} className="btn btn-danger">🔴 Выйти</button>
+      {/* 🔴 УВЕДОМЛЕНИЯ */}
+      <div className="notifications-section">
+        <div className="notifications-header">
+          <h3>🔔 Уведомления</h3>
+          <div className="notifications-actions">
+            {notifications.length > 0 && (
+              <span className="notifications-count">
+                {notifications.filter(n => !n.isRead).length} новых
+              </span>
+            )}
+            {notifications.length > 0 && (
+              <button 
+                className="btn btn-danger btn-sm" 
+                onClick={handleDeleteAllNotifications}
+              >
+                🗑️ Удалить все
+              </button>
+            )}
+          </div>
         </div>
+        
+        {loadingNotifications ? (
+          <div className="loader-small"></div>
+        ) : notifications.length === 0 ? (
+          <div className="empty-state">
+            <p>📭 Уведомлений нет</p>
+          </div>
+        ) : (
+          <div className="notifications-list">
+            {notifications.map((notification) => (
+              <div 
+                key={notification._id} 
+                className={`notification-card ${!notification.isRead ? 'unread' : ''}`}
+              >
+                <div className="notification-content">
+                  <div className="notification-header">
+                    <span className="notification-type">
+                      {notification.type === 'quote' && '💬 Цитата'}
+                      {notification.type === 'reply' && '↩️ Ответ'}
+                      {notification.type === 'like' && '👍 Лайк'}
+                      {notification.type === 'report' && '⚠️ Жалоба'}
+                    </span>
+                    <span className="notification-date">
+                      {formatDate(notification.createdAt)}
+                    </span>
+                  </div>
+                  
+                  <h4 className="notification-title">{notification.title}</h4>
+                  <p className="notification-message">{notification.message}</p>
+                  
+                  {notification.quotePreview && (
+                    <div className="quote-preview">
+                      <small>{formatTextWithLineBreaks(notification.quotePreview).substring(0, 150)}...</small>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="notification-actions">
+                  {!notification.isRead && (
+                    <button 
+                      className="btn btn-sm btn-outline"
+                      onClick={() => handleMarkAsRead(notification._id)}
+                    >
+                      ✓ Прочитано
+                    </button>
+                  )}
+                  <button 
+                    className="btn btn-sm btn-danger"
+                    onClick={() => handleDeleteNotification(notification._id)}
+                  >
+                    ✕ Удалить
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

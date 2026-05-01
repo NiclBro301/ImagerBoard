@@ -6,10 +6,11 @@ import { userService } from '../services/userService';
 import { boardService } from '../services/boardService';
 import BanModal from '../components/BanModal';
 import ReportsModal from '../components/ReportsModal';
+import { socketService } from '../services/socketService';
 import './AdminPage.css';
 
 const AdminPage = () => {
-  const { user } = useSelector((state) => state.auth);
+  const { user, token } = useSelector((state) => state.auth);  // ← Добавили token
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // Состояния для жалоб
@@ -52,11 +53,10 @@ const AdminPage = () => {
   });
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // 🔴 НОВАЯ функция: Извлекает оригинальный текст из поста (без цитат)
+  // Извлекает оригинальный текст из поста (без цитат)
   const extractOriginalText = (content) => {
     if (!content) return 'Пост удалён';
     
-    // Очищаем от HTML тегов и сущностей
     let cleanContent = content
       .replace(/<[^>]*>/g, '')
       .replace(/&nbsp;/g, ' ')
@@ -67,7 +67,6 @@ const AdminPage = () => {
     const lines = cleanContent.split('\n');
     const originalLines = [];
     
-    // Берём только строки, которые НЕ являются цитатами
     for (let line of lines) {
       const trimmed = line.trim();
       if (!trimmed.startsWith('>')) {
@@ -75,12 +74,10 @@ const AdminPage = () => {
       }
     }
     
-    // Если есть оригинальный текст — возвращаем его
     if (originalLines.length > 0) {
       return originalLines.join(' ').trim();
     }
     
-    // Если нет оригинального текста, берём последнюю цитату
     const quoteLines = [];
     for (let line of lines) {
       const trimmed = line.trim();
@@ -130,6 +127,58 @@ const AdminPage = () => {
       loadBoards();
     }
   }, [activeTab]);
+
+  // 🔴 SOCKET.IO: Автообновление списка жалоб в реальном времени
+  // (должен быть ВЫЗВАН ДО любого return!)
+  useEffect(() => {
+    // Проверка внутри хука — это нормально
+    if (activeTab !== 'reports' || !token) {
+      return;
+    }
+    
+    console.log('🔌 AdminPage: Подписка на обновления жалоб');
+    
+    // 🔹 Обработчик новой жалобы
+    const handleNewReport = (data) => {
+      console.log('📥 AdminPage: Новая жалоба, обновляем список', data);
+      loadReports();  // Перезагружаем список
+      // 🔴 Обновляем счётчик pending жалоб
+      setPendingCount(prev => prev + 1);
+    };
+    
+    // 🔹 Обработчик обновления жалобы
+    const handleReportUpdated = (data) => {
+      console.log('📥 AdminPage: Жалоба обновлена, обновляем список', data);
+      loadReports();  // Перезагружаем список
+      if (activeTab === 'dashboard') {
+        loadStats();  // Обновляем статистику на дашборде
+      }
+    };
+    
+    // 🔹 Подписываемся на события
+    socketService.on('new-report', handleNewReport);
+    socketService.on('report-updated', handleReportUpdated);
+    
+    // 🔹 Обработчик кастомного события от App.js (клик по toast)
+    const handleCustomRefresh = () => {
+      console.log('🔄 AdminPage: Custom refresh event received');
+      loadReports();
+      if (activeTab === 'dashboard') {
+        loadStats();
+      }
+    };
+    window.addEventListener('admin-reports-refresh', handleCustomRefresh);
+    
+    // 🔹 Очистка при размонтировании или смене вкладки
+    return () => {
+      console.log('🔌 AdminPage: Отписка от обновлений жалоб');
+      socketService.off('new-report', handleNewReport);
+      socketService.off('report-updated', handleReportUpdated);
+      window.removeEventListener('admin-reports-refresh', handleCustomRefresh);
+    };
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, token]);  // ← token теперь определён
 
   // Вспомогательная функция для извлечения данных
   const extractData = (response, key = null) => {
@@ -445,7 +494,7 @@ const AdminPage = () => {
     return `${date} (скоро)`;
   };
 
-  // Проверка роли
+  // Проверка роли — ПОСЛЕ всех хуков!
   if (user?.role !== 'admin' && user?.role !== 'moderator') {
     return (
       <div className="container mt-5">
@@ -552,7 +601,6 @@ const AdminPage = () => {
                           <div className="report-info">
                             <strong>Пост:</strong>
                             <div className="post-preview">
-                              {/* 🔴 ИСПРАВЛЕНО: Используем extractOriginalText для отображения только оригинального сообщения */}
                               <p>{extractOriginalText(report.post?.content)}</p>
                               <small>Автор: {report.post?.author || 'Аноним'}</small>
                             </div>

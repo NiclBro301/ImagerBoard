@@ -4,14 +4,31 @@ import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { threadService } from '../services/threadService';
 import { postService } from '../services/postService';
+import { socketService } from '../services/socketService';
 import { formatTextWithLineBreaks } from '../utils/textUtils';
 import ReportButton from '../components/ReportButton';
 import './ThreadPage.css';
 
+// 🔴 Вспомогательная функция: нормализация likedBy к массиву строк (ВНЕ компонента)
+const normalizeLikedBy = (likedBy) => {
+  if (!likedBy) return [];
+  if (!Array.isArray(likedBy)) {
+    const id = typeof likedBy === 'object' && likedBy?._id 
+      ? likedBy._id.toString() 
+      : likedBy?.toString();
+    return id ? [id] : [];
+  }
+  return likedBy.map(id => {
+    if (typeof id === 'string') return id;
+    if (typeof id === 'object' && id?._id) return id._id.toString();
+    return id?.toString() || '';
+  }).filter(id => id);
+};
+
 const ThreadPage = () => {
   const { threadId } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated, user } = useSelector((state) => state.auth);
+  const { isAuthenticated, user, token } = useSelector((state) => state.auth);
   
   const [thread, setThread] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -23,39 +40,150 @@ const ThreadPage = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [quotedPosts, setQuotedPosts] = useState({});
 
-  // 🔴 ИСПРАВЛЕННАЯ функция очистки цитаты - берём только ПОСЛЕДНИЙ уровень
   const cleanQuoteForDisplay = (text) => {
     if (!text) return '';
-    
     const lines = text.split('\n');
     const quoteLines = [];
-    
-    // Собираем все строки-цитаты
     for (let line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('>')) {
         quoteLines.push(trimmed);
       }
     }
-    
-    // Если есть цитаты, берём ПОСЛЕДНЮЮ (самую свежую)
     if (quoteLines.length > 0) {
       const lastQuote = quoteLines[quoteLines.length - 1];
-      // Убираем префикс > и возвращаем
       return lastQuote.replace(/^>\s*/, '').trim();
     }
-    
-    // Если нет цитат, возвращаем весь текст без цитат
     return lines
       .filter(line => !line.trim().startsWith('>'))
       .join('\n')
       .trim();
   };
 
+  // Загрузка треда и постов
   useEffect(() => {
     loadThread();
     loadPosts();
   }, [threadId]);
+
+  // 🔴 SOCKET.IO: ПОДПИСКА НА СОБЫТИЯ ТРЕДА
+  useEffect(() => {
+    if (!threadId || !token) {
+      console.log('⚠️ ThreadPage: Нет threadId или токена');
+      return;
+    }
+    
+    console.log('🔌 ThreadPage: Подписка на события треда', threadId);
+    
+    const subscribeToThread = () => {
+      if (socketService.isConnected()) {
+        socketService.joinThread(threadId);
+      } else {
+        console.log('⏳ Socket not connected, waiting...');
+        const onConnect = () => {
+          console.log('✅ Socket connected, subscribing to thread');
+          socketService.joinThread(threadId);
+          socketService.getSocket()?.off('connect', onConnect);
+        };
+        socketService.getSocket()?.on('connect', onConnect);
+      }
+    };
+    
+    subscribeToThread();
+    
+    // 🔹 Обработчик: новый пост
+    const handleNewPost = (data) => {
+      console.log('📥 ThreadPage: Получен новый пост', data);
+      
+      if (data.threadId === threadId) {
+        setPosts(prev => {
+          const exists = prev.some(p => p._id === data.post._id);
+          if (exists) {
+            console.log('⚠️ Пост уже есть, пропускаем');
+            return prev;
+          }
+          return [...prev, data.post];
+        });
+        
+        toast.info('💬 Новый ответ в треде!', {
+          position: 'top-right',
+          autoClose: 3000,
+        });
+      }
+    };
+    
+    // 🔹 Обработчик: удаление поста
+    const handlePostDeleted = (data) => {
+      console.log('📥 ThreadPage: Пост удалён', data);
+      
+      if (data.threadId === threadId) {
+        setPosts(prev => {
+          const filtered = prev.filter(p => p._id !== data.postId);
+          if (filtered.length !== prev.length) {
+            toast.info('🗑️ Пост удалён', {
+              position: 'top-right',
+              autoClose: 2000,
+            });
+            return filtered;
+          }
+          return prev;
+        });
+      }
+    };
+    
+    // 🔹 Обработчик: лайк поста
+    const handlePostLiked = (data) => {
+      console.log('📥 ThreadPage: Пост лайкнут', data);
+      console.log('📊 likedBy:', data.likedBy);
+      
+      if (data.threadId === threadId) {
+        setPosts(prev => prev.map(p => {
+          if (p._id === data.postId) {
+            return {
+              ...p,
+              likes: typeof data.likes === 'number' ? data.likes : p.likes,
+              likedBy: normalizeLikedBy(data.likedBy),
+            };
+          }
+          return p;
+        }));
+      }
+    };
+    
+    // 🔹 Обработчик: удаление лайка
+    const handlePostUnliked = (data) => {
+      console.log('📥 ThreadPage: Лайк убран', data);
+      console.log('📊 likedBy:', data.likedBy);
+      
+      if (data.threadId === threadId) {
+        setPosts(prev => prev.map(p => {
+          if (p._id === data.postId) {
+            return {
+              ...p,
+              likes: typeof data.likes === 'number' ? data.likes : p.likes,
+              likedBy: normalizeLikedBy(data.likedBy),
+            };
+          }
+          return p;
+        }));
+      }
+    };
+    
+    // 🔹 Подписываемся на события
+    socketService.on('new-post', handleNewPost);
+    socketService.on('post-deleted', handlePostDeleted);
+    socketService.on('post-liked', handlePostLiked);
+    socketService.on('post-unliked', handlePostUnliked);
+    
+    // 🔹 Очистка при размонтировании
+    return () => {
+      console.log('🔌 ThreadPage: Отписка от событий треда', threadId);
+      socketService.off('new-post', handleNewPost);
+      socketService.off('post-deleted', handlePostDeleted);
+      socketService.off('post-liked', handlePostLiked);
+      socketService.off('post-unliked', handlePostUnliked);
+    };
+  }, [threadId, token]);
 
   const loadThread = async () => {
     try {
@@ -71,7 +199,15 @@ const ThreadPage = () => {
     try {
       setLoading(true);
       const response = await postService.getAll(threadId);
-      setPosts(response.data.posts || []);
+      
+      // 🔴 НОРМАЛИЗАЦИЯ: гарантируем, что likedBy — массив строк
+      const normalizedPosts = (response.data.posts || []).map(post => ({
+        ...post,
+        likedBy: normalizeLikedBy(post.likedBy),
+      }));
+      
+      console.log('✅ Posts loaded:', normalizedPosts.length);
+      setPosts(normalizedPosts);
     } catch (error) {
       console.error('Error loading posts:', error);
     } finally {
@@ -104,81 +240,59 @@ const ThreadPage = () => {
     document.getElementById('post-image').value = '';
   };
 
-  // 🔴 ИСПРАВЛЕННАЯ функция цитирования
- const handleQuote = (post) => {
-  if (quotedPosts[post._id]) {
-    toast.warning('⚠️ Вы уже цитируете этот пост', {
-      position: 'top-right',
-      autoClose: 2500,
+  const handleQuote = (post) => {
+    if (quotedPosts[post._id]) {
+      toast.warning('⚠️ Вы уже цитируете этот пост', {
+        position: 'top-right',
+        autoClose: 2500,
+      });
+      return;
+    }
+
+    let cleanContent = post.content
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+    
+    const lines = cleanContent.split('\n');
+    const quoteLines = [];
+    const textLines = [];
+    
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+      } else if (trimmed.length > 0) {
+        textLines.push(trimmed);
+      }
     });
-    return;
-  }
-
-  console.log('=== HANDLEQUOTE ===');
-  console.log('📝 Исходный post.content:', post.content);
-  console.log('👤 post.author:', post.author);
-  
-  // Очищаем от HTML тегов
-  let cleanContent = post.content
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
-  
-  console.log('🧹 После очистки HTML:', cleanContent);
-  
-  const lines = cleanContent.split('\n');
-  console.log('📋 Строки:', lines);
-  
-  const quoteLines = [];
-  const textLines = [];
-  
-  lines.forEach((line, index) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('>')) {
-      quoteLines.push({ index, text: trimmed.replace(/^>\s*/, '').trim() });
-      console.log(`💬 Цитата [${index}]:`, trimmed);
-    } else if (trimmed.length > 0) {
-      textLines.push({ index, text: trimmed });
-      console.log(`📝 Текст [${index}]:`, trimmed);
+    
+    let finalContent = '';
+    if (textLines.length > 0) {
+      finalContent = textLines.join('\n').trim();
+    } else if (quoteLines.length > 0) {
+      finalContent = quoteLines[quoteLines.length - 1];
+    } else {
+      finalContent = 'Без текста';
     }
-  });
-  
-  // 🔴 ИСПРАВЛЕНО: Приоритет — НОВЫЙ ТЕКСТ, не цитаты!
-  let finalContent = '';
-  
-  if (textLines.length > 0) {
-    // 🔹 ЕСТЬ НОВЫЙ ТЕКСТ — берём его (это самый свежий ответ)
-    finalContent = textLines.map(t => t.text).join('\n').trim();
-    console.log('✅ Выбран НОВЫЙ ТЕКСТ:', finalContent);
-  } else if (quoteLines.length > 0) {
-    // 🔹 Нет текста — берём ПОСЛЕДНЮЮ цитату
-    finalContent = quoteLines[quoteLines.length - 1].text;
-    console.log('✅ Выбрана последняя цитата:', finalContent);
-  } else {
-    finalContent = 'Без текста';
-    console.log('⚠️ Пустой пост');
-  }
-  
-  console.log('🎯 Итоговый контент для цитаты:', finalContent);
-  console.log('===================');
 
-  setQuotedPosts(prev => ({
-    ...prev,
-    [post._id]: {
-      postId: post._id,
-      author: post.author || 'Аноним',
-      content: finalContent || 'Без текста',
-      timestamp: new Date(post.createdAt).toLocaleString('ru-RU'),
-    }
-  }));
+    setQuotedPosts(prev => ({
+      ...prev,
+      [post._id]: {
+        postId: post._id,
+        author: post.author || 'Аноним',
+        content: finalContent || 'Без текста',
+        timestamp: new Date(post.createdAt).toLocaleString('ru-RU'),
+      }
+    }));
 
-  toast.success('📝 Цитата добавлена', {
-    position: 'top-right',
-    autoClose: 2000,
-  });
-};
+    toast.success('📝 Цитата добавлена', {
+      position: 'top-right',
+      autoClose: 2000,
+    });
+  };
 
   const handleRemoveQuote = (postId) => {
     setQuotedPosts(prev => {
@@ -190,8 +304,8 @@ const ThreadPage = () => {
 
   const handleLike = async (postId) => {
     try {
+      console.log('👍 Liking post:', postId);
       await postService.like(postId);
-      loadPosts();
       toast.success('👍 Лайк поставлен!', {
         position: 'top-right',
         autoClose: 2000,
@@ -207,8 +321,8 @@ const ThreadPage = () => {
 
   const handleUnlike = async (postId) => {
     try {
+      console.log('👎 Unliking post:', postId);
       await postService.unlike(postId);
-      loadPosts();
       toast.success('👎 Лайк убран', {
         position: 'top-right',
         autoClose: 2000,
@@ -228,7 +342,6 @@ const ThreadPage = () => {
 
     try {
       await postService.delete(postId);
-      loadPosts();
       toast.success('🗑️ Пост успешно удалён!', {
         position: 'top-right',
         autoClose: 3000,
@@ -270,7 +383,6 @@ const ThreadPage = () => {
       setFormData({ content: '', image: null });
       setImagePreview(null);
       setQuotedPosts({});
-      loadPosts();
       
       toast.success('✅ Пост успешно создан!', {
         position: 'top-right',
@@ -310,6 +422,22 @@ const ThreadPage = () => {
           <div className="post-author">
             {thread?.user ? (
               <>
+                {thread.user.avatar ? (
+                  <img 
+                    src={`http://localhost:5000${thread.user.avatar}`} 
+                    alt={thread.author}
+                    className="post-author-avatar"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      const placeholder = e.target.parentElement.querySelector('.post-author-avatar-placeholder');
+                      if (placeholder) placeholder.style.display = 'flex';
+                    }}
+                  />
+                ) : (
+                  <div className="post-author-avatar-placeholder">
+                    {thread.author?.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <span className="author-name">{thread?.author}</span>
                 <span className="author-badge" title="Зарегистрированный пользователь">✓</span>
               </>
@@ -347,89 +475,113 @@ const ThreadPage = () => {
       <div className="posts-section">
         <h2>Ответы ({posts.length})</h2>
         
-        {posts.map((post) => (
-          <div key={post._id} className="post-card">
-            <div className="post-header">
-              <div className={`post-author ${post.user ? 'registered' : 'anonymous'}`}>
-                {post.user ? (
-                  <>
-                    <span className="author-name">{post.author}</span>
-                    <span className="author-badge" title="Зарегистрированный пользователь">✓</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="author-name">Аноним</span>
-                    {post.anonymousHash && (
-                      <span className="author-id" title="Уникальный идентификатор">#{post.anonymousHash.slice(0, 6)}</span>
-                    )}
-                  </>
-                )}
-                <span className="post-date">
-                  {new Date(post.createdAt).toLocaleString('ru-RU')}
-                </span>
+        {posts.map((post) => {
+          const currentUserId = user?._id?.toString();
+          const postLikedBy = normalizeLikedBy(post.likedBy);
+          const hasLiked = isAuthenticated && currentUserId && Array.isArray(postLikedBy) && postLikedBy.includes(currentUserId);
+          
+          return (
+            <div key={post._id} className="post-card">
+              <div className="post-header">
+                <div className={`post-author ${post.user ? 'registered' : 'anonymous'}`}>
+                  {post.user ? (
+                    <>
+                      {post.user.avatar ? (
+                        <img 
+                          src={`http://localhost:5000${post.user.avatar}`} 
+                          alt={post.author}
+                          className="post-author-avatar"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            const placeholder = e.target.parentElement.querySelector('.post-author-avatar-placeholder');
+                            if (placeholder) placeholder.style.display = 'flex';
+                          }}
+                        />
+                      ) : (
+                        <div className="post-author-avatar-placeholder">
+                          {post.author?.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="author-name">{post.author}</span>
+                      <span className="author-badge" title="Зарегистрированный пользователь">✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="author-name">Аноним</span>
+                      {post.anonymousHash && (
+                        <span className="author-id" title="Уникальный идентификатор">#{post.anonymousHash.slice(0, 6)}</span>
+                      )}
+                    </>
+                  )}
+                  <span className="post-date">
+                    {new Date(post.createdAt).toLocaleString('ru-RU')}
+                  </span>
+                </div>
+                
+                <div className="post-actions">
+                  <button 
+                    className="btn-action" 
+                    title="Цитировать"
+                    onClick={() => handleQuote(post)}
+                    disabled={!!quotedPosts[post._id]}
+                  >
+                    💬
+                  </button>
+                  
+                  <ReportButton postId={post._id} postAuthor={post.author} />
+                  
+                  <button 
+                    className={`btn-like ${hasLiked ? 'liked' : ''}`} 
+                    onClick={() => hasLiked ? handleUnlike(post._id) : handleLike(post._id)}
+                    title={hasLiked ? "Убрать лайк" : "Нравится"}
+                    disabled={!isAuthenticated}
+                  >
+                    👍 {typeof post.likes === 'number' ? post.likes : 0}
+                  </button>
+                  
+                  {hasLiked && (
+                    <button 
+                      className="btn-unlike" 
+                      onClick={() => handleUnlike(post._id)}
+                      title="Убрать лайк"
+                    >
+                      👎
+                    </button>
+                  )}
+                  
+                  {(isAuthenticated && (
+                   (user?.role === 'admin' || user?.role === 'moderator') || 
+                    (post.user && post.user.toString() === user?._id.toString())
+                  )) && (
+                    <button 
+                      className="btn-delete" 
+                      onClick={() => handleDeletePost(post._id, post.author)}
+                      title="Удалить пост"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
               </div>
               
-              <div className="post-actions">
-                <button 
-                  className="btn-action" 
-                  title="Цитировать"
-                  onClick={() => handleQuote(post)}
-                  disabled={!!quotedPosts[post._id]}
-                >
-                  💬
-                </button>
-                
-                <ReportButton postId={post._id} postAuthor={post.author} />
-                
-                <button 
-                  className={`btn-like ${post.likes > 0 ? 'liked' : ''}`} 
-                  onClick={() => handleLike(post._id)}
-                  title="Нравится"
-                >
-                  👍 {post.likes}
-                </button>
-                {post.likes > 0 && (
-                  <button 
-                    className="btn-unlike" 
-                    onClick={() => handleUnlike(post._id)}
-                    title="Убрать лайк"
-                  >
-                    👎
-                  </button>
-                )}
-                
-                {(isAuthenticated && (
-                 (user?.role === 'admin' || user?.role === 'moderator') || 
-                  (post.user && post.user.toString() === user?._id.toString())
-                )) && (
-                  <button 
-                    className="btn-delete" 
-                    onClick={() => handleDeletePost(post._id, post.author)}
-                    title="Удалить пост"
-                  >
-                    🗑️
-                  </button>
-                )}
-              </div>
-            </div>
-            
-            <div className="post-content">
-              <div 
-                dangerouslySetInnerHTML={{ 
-                  __html: formatTextWithLineBreaks(post.content) 
-                }} 
-              />
-              
-              {post.image && (
-                <img 
-                  src={`http://localhost:5000${post.image}`} 
-                  alt="Изображение поста" 
-                  className="post-image" 
+              <div className="post-content">
+                <div 
+                  dangerouslySetInnerHTML={{ 
+                    __html: formatTextWithLineBreaks(post.content) 
+                  }} 
                 />
-              )}
+                
+                {post.image && (
+                  <img 
+                    src={`http://localhost:5000${post.image}`} 
+                    alt="Изображение поста" 
+                    className="post-image" 
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="form-author-indicator">

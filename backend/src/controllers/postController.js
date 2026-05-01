@@ -2,8 +2,10 @@ const Post = require('../models/Post');
 const Thread = require('../models/Thread');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const { getIO } = require('../socket');
 const crypto = require('crypto');
 
+// 🔴 Вспомогательная функция: очистка текста
 const cleanText = (text) => {
   if (!text) return text;
   return text
@@ -12,6 +14,7 @@ const cleanText = (text) => {
     .replace(/^\n+|\n+$/g, '');
 };
 
+// 🔴 Вспомогательная функция: поиск цитируемого поста для уведомлений
 const findQuotedPost = async (threadId, content, currentUserId) => {
   try {
     const lines = content.split('\n');
@@ -67,6 +70,49 @@ const findQuotedPost = async (threadId, content, currentUserId) => {
   }
 };
 
+// 🔴 Вспомогательная функция: извлечение оригинального текста
+const extractOriginalText = (content) => {
+  if (!content) return '';
+  
+  let cleanContent = content
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+  
+  const lines = cleanContent.split('\n');
+  const originalLines = [];
+  
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('>')) {
+      originalLines.push(trimmed);
+    }
+  }
+  
+  if (originalLines.length > 0) {
+    return originalLines.join(' ').trim();
+  }
+  
+  const quoteLines = [];
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('>')) {
+      quoteLines.push(trimmed.replace(/^>\s*/, '').trim());
+    }
+  }
+  
+  if (quoteLines.length > 0) {
+    return quoteLines[quoteLines.length - 1];
+  }
+  
+  return cleanContent.trim();
+};
+
+// @desc    Получить все посты треда
+// @route   GET /posts/thread/:threadId
+// @access  Public
 const getPosts = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -80,11 +126,12 @@ const getPosts = async (req, res) => {
       });
     }
 
+    // 🔴 ИСПРАВЛЕНО: populate user с полем avatar
     const posts = await Post.find({ thread: threadId, isDeleted: false })
       .sort({ createdAt: 1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .populate('user', 'username')
+      .populate('user', 'username avatar')  // ← Добавлено поле avatar
       .lean();
 
     const count = await Post.countDocuments({
@@ -109,6 +156,9 @@ const getPosts = async (req, res) => {
   }
 };
 
+// @desc    Создать пост + уведомления + Socket.io эмиссия
+// @route   POST /posts/thread/:threadId
+// @access  Private
 const createPost = async (req, res) => {
   try {
     const { threadId } = req.params;
@@ -148,6 +198,7 @@ const createPost = async (req, res) => {
     const post = await Post.create(postData);
     await thread.incrementPostCount();
 
+    // 🔴 УВЕДОМЛЕНИЯ
     let notificationSent = false;
 
     if (req.user) {
@@ -155,7 +206,7 @@ const createPost = async (req, res) => {
       
       if (quoteInfo && quoteInfo.post && quoteInfo.post.user) {
         try {
-          await Notification.create({
+          const notification = await Notification.create({
             user: quoteInfo.post.user._id,
             type: 'quote',
             post: post._id,
@@ -169,6 +220,22 @@ const createPost = async (req, res) => {
               originalContent: quoteInfo.content,
             },
           });
+          
+          // 🔴 Socket.io: Эмиссия уведомления
+          const io = getIO();
+          if (io && quoteInfo.post.user._id) {
+            io.to(`user:${quoteInfo.post.user._id}`).emit('notification', {
+              _id: notification._id,
+              type: 'quote',
+              title: 'Вас процитировали',
+              message: `${req.user.username} процитировал ваш пост`,
+              quotePreview: quoteInfo.content,
+              isRead: false,
+              createdAt: notification.createdAt,
+            });
+            console.log(`📡 Emitted quote notification to user ${quoteInfo.post.user._id}`);
+          }
+          
           notificationSent = true;
         } catch (notifError) {
           console.error('Error creating quote notification:', notifError);
@@ -177,16 +244,58 @@ const createPost = async (req, res) => {
     }
 
     if (!notificationSent && thread.user && thread.user._id.toString() !== (req.user?._id?.toString() || 'anonymous')) {
-      await Notification.create({
-        user: thread.user._id,
-        type: 'reply',
-        post: post._id,
-        thread: thread._id,
-        fromUser: req.user?._id || null,
-        title: 'Новый ответ в вашем треде',
-        message: `${post.author} ответил в треде "${thread.title}"`,
-        quotePreview: cleanedContent.substring(0, 100),
-      });
+      try {
+        const notification = await Notification.create({
+          user: thread.user._id,
+          type: 'reply',
+          post: post._id,
+          thread: thread._id,
+          fromUser: req.user?._id || null,
+          title: 'Новый ответ в вашем треде',
+          message: `${post.author} ответил в треде "${thread.title}"`,
+          quotePreview: cleanedContent.substring(0, 100),
+        });
+        
+        // 🔴 Socket.io: Эмиссия уведомления
+        const io = getIO();
+        if (io && thread.user._id) {
+          io.to(`user:${thread.user._id}`).emit('notification', {
+            _id: notification._id,
+            type: 'reply',
+            title: 'Новый ответ в вашем треде',
+            message: `${post.author} ответил в треде "${thread.title}"`,
+            quotePreview: cleanedContent.substring(0, 100),
+            isRead: false,
+            createdAt: notification.createdAt,
+          });
+          console.log(`📡 Emitted reply notification to user ${thread.user._id}`);
+        }
+      } catch (notifError) {
+        console.error('Error creating reply notification:', notifError);
+      }
+    }
+
+    // 🔴 Socket.io: Эмиссия нового поста
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(`thread:${threadId}`).emit('new-post', {
+          threadId,
+          post: {
+            _id: post._id,
+            content: post.content,
+            author: post.author,
+            user: post.user,
+            image: post.image,
+            createdAt: post.createdAt,
+            likes: post.likes,
+            likedBy: post.likedBy,
+          },
+        });
+        console.log(`📡 Emitted: new-post to thread ${threadId}`);
+      }
+    } catch (emitError) {
+      console.warn('⚠️ Failed to emit new-post:', emitError.message);
     }
 
     res.status(201).json({
@@ -203,6 +312,9 @@ const createPost = async (req, res) => {
   }
 };
 
+// @desc    Обновить пост
+// @route   PUT /posts/:id
+// @access  Private/Admin
 const updatePost = async (req, res) => {
   try {
     const { content, author } = req.body;
@@ -241,6 +353,9 @@ const updatePost = async (req, res) => {
   }
 };
 
+// @desc    Удалить пост
+// @route   DELETE /posts/:id
+// @access  Private
 const deletePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id).populate('user');
@@ -270,6 +385,20 @@ const deletePost = async (req, res) => {
       await thread.decrementPostCount();
     }
 
+    // 🔴 Socket.io: Эмиссия удаления поста
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(`thread:${post.thread}`).emit('post-deleted', {
+          threadId: post.thread,
+          postId: post._id,
+        });
+        console.log(`📡 Emitted: post-deleted from thread ${post.thread}`);
+      }
+    } catch (emitError) {
+      console.warn('⚠️ Failed to emit post-deleted:', emitError.message);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Пост удалён успешно',
@@ -283,6 +412,9 @@ const deletePost = async (req, res) => {
   }
 };
 
+// @desc    Лайкнуть пост + уведомление (ТОЛЬКО ПЕРВЫЙ ЛАЙК)
+// @route   POST /posts/:id/like
+// @access  Private
 const likePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id).populate('user');
@@ -301,18 +433,80 @@ const likePost = async (req, res) => {
       });
     }
 
+    // 🔴 ПРОВЕРКА: лайкал ли уже этот пользователь
+    const alreadyLiked = post.likedBy?.some(id => {
+      const userId = req.user._id.toString();
+      const likeId = typeof id === 'object' && id?._id 
+        ? id._id.toString() 
+        : id?.toString();
+      return likeId === userId;
+    });
+    
+    if (alreadyLiked) {
+      return res.status(400).json({
+        success: false,
+        message: 'Вы уже лайкали этот пост',
+      });
+    }
+
     await post.like(req.user._id);
 
+    // 🔴 УВЕДОМЛЕНИЕ: только если это ПЕРВЫЙ лайк и не свой пост
     if (post.user && post.user._id.toString() !== req.user._id.toString()) {
-      await Notification.create({
+      // 🔴 Проверяем, не отправляли ли уже уведомление этому пользователю за этот пост
+      const existingNotif = await Notification.findOne({
         user: post.user._id,
         type: 'like',
         post: post._id,
-        thread: post.thread,
         fromUser: req.user._id,
-        title: 'Новый лайк',
-        message: `${req.user.username} лайкнул ваш пост`,
-        quotePreview: post.content.substring(0, 100),
+      });
+      
+      // 🔴 Отправляем уведомление только если его ещё нет
+      if (!existingNotif) {
+        const notification = await Notification.create({
+          user: post.user._id,
+          type: 'like',
+          post: post._id,
+          thread: post.thread,
+          fromUser: req.user._id,
+          title: 'Новый лайк',
+          message: `${req.user.username} лайкнул ваш пост`,
+          quotePreview: post.content.substring(0, 100),
+        });
+        
+        // 🔴 Socket.io: Эмиссия уведомления
+        const io = getIO();
+        if (io && post.user._id) {
+          io.to(`user:${post.user._id}`).emit('notification', {
+            _id: notification._id,
+            type: 'like',
+            title: 'Новый лайк',
+            message: `${req.user.username} лайкнул ваш пост`,
+            quotePreview: post.content.substring(0, 100),
+            isRead: false,
+            createdAt: notification.createdAt,
+          });
+          console.log(`📡 Emitted like notification to user ${post.user._id}`);
+        }
+      } else {
+        console.log(`ℹ️ Notification already exists for user ${post.user._id}, skipping`);
+      }
+    }
+
+    // 🔴 Socket.io: Эмиссия обновления лайка (всем в треде)
+    const io = getIO();
+    if (io) {
+      console.log('📡 Emitting post-liked:', {
+        threadId: post.thread,
+        postId: post._id,
+        likes: post.likes,
+        likedBy: post.likedBy,
+      });
+      io.to(`thread:${post.thread}`).emit('post-liked', {
+        threadId: post.thread,
+        postId: post._id,
+        likes: post.likes,
+        likedBy: post.likedBy,
       });
     }
 
@@ -338,6 +532,9 @@ const likePost = async (req, res) => {
   }
 };
 
+// @desc    Убрать лайк с поста
+// @route   POST /posts/:id/unlike
+// @access  Private
 const unlikePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
@@ -357,6 +554,23 @@ const unlikePost = async (req, res) => {
     }
 
     await post.unlike(req.user._id);
+
+    // 🔴 Socket.io: Эмиссия обновления лайка (всем в треде)
+    const io = getIO();
+    if (io) {
+      console.log('📡 Emitting post-unliked:', {
+        threadId: post.thread,
+        postId: post._id,
+        likes: post.likes,
+        likedBy: post.likedBy,
+      });
+      io.to(`thread:${post.thread}`).emit('post-unliked', {
+        threadId: post.thread,
+        postId: post._id,
+        likes: post.likes,
+        likedBy: post.likedBy,
+      });
+    }
 
     res.status(200).json({
       success: true,

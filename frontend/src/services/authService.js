@@ -21,6 +21,7 @@ export const authService = {
     return api.get('/auth/me/stats');
   },
 
+  // 🔴 ИСПРАВЛЕНО: параметры передаются через params, а не в теле
   getNotifications: (params = {}) => {
     return api.get('/auth/notifications', { params });
   },
@@ -33,7 +34,6 @@ export const authService = {
     return api.delete(`/auth/notifications/${notificationId}`);
   },
 
-  // 🔴 НОВЫЕ: Аватар и уведомления
   uploadAvatar: (formData) => {
     return api.post('/auth/avatar', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

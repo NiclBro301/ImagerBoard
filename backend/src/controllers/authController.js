@@ -57,26 +57,35 @@ const register = async (req, res) => {
 // @route   POST /api/auth/login
 // @access  Public
 const login = async (req, res) => {
+  console.log('🔐 Login attempt:', req.body?.email);
+  
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
+      console.log('⚠️ Missing email or password');
       return res.status(400).json({
         success: false,
         message: 'Пожалуйста, введите email и пароль',
       });
     }
 
+    console.log('🔍 Searching user:', email);
     const user = await User.findOne({ email }).select('+password');
+    
     if (!user) {
+      console.log('❌ User not found:', email);
       return res.status(401).json({
         success: false,
         message: 'Неверный email или пароль',
       });
     }
 
+    console.log('🔑 Checking password...');
     const isMatch = await user.matchPassword(password);
+    
     if (!isMatch) {
+      console.log('❌ Password mismatch');
       return res.status(401).json({
         success: false,
         message: 'Неверный email или пароль',
@@ -115,10 +124,15 @@ const login = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ LOGIN ERROR:', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Ошибка при входе',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -138,6 +152,13 @@ const logout = (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const user = await User.findById(req.user._id).select('-password');
     
     if (!user) {
@@ -165,6 +186,13 @@ const getMe = async (req, res) => {
 // @access  Private
 const getUserStats = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const userId = req.user._id;
     
     const Post = require('../models/Post');
@@ -205,13 +233,18 @@ const getUserStats = async (req, res) => {
   }
 };
 
-// 🔴 НОВЫЕ: ФУНКЦИИ УВЕДОМЛЕНИЙ
-
 // @desc    Получить уведомления пользователя
 // @route   GET /auth/notifications
 // @access  Private
 const getNotifications = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const { unreadOnly = false, limit = 10, page = 1 } = req.query;
     
     const query = { user: req.user._id };
@@ -250,6 +283,13 @@ const getNotifications = async (req, res) => {
 // @access  Private
 const markNotificationAsRead = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const notification = await Notification.findOne({
       _id: req.params.id,
       user: req.user._id,
@@ -284,6 +324,13 @@ const markNotificationAsRead = async (req, res) => {
 // @access  Private
 const deleteNotification = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const notification = await Notification.findOneAndDelete({
       _id: req.params.id,
       user: req.user._id,
@@ -310,13 +357,18 @@ const deleteNotification = async (req, res) => {
   }
 };
 
-// 🔴 НОВЫЕ: ФУНКЦИИ АВАТАРА
-
 // @desc    Загрузить аватар пользователя
 // @route   POST /auth/avatar
 // @access  Private
 const uploadAvatar = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -378,6 +430,13 @@ const uploadAvatar = async (req, res) => {
 // @access  Private
 const deleteAvatar = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     const user = await User.findById(req.user._id);
     
     if (user.avatar && fs.existsSync(path.join(__dirname, '../../', user.avatar))) {
@@ -407,6 +466,13 @@ const deleteAvatar = async (req, res) => {
 // @access  Private
 const deleteAllNotifications = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Требуется авторизация',
+      });
+    }
+    
     await Notification.deleteMany({ user: req.user._id });
 
     res.status(200).json({
